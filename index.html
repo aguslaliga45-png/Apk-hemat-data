@@ -17,9 +17,12 @@
         .chat-row { display: flex; align-items: flex-end; margin-bottom: 8px; max-width: 80%; }
         .incoming { align-self: flex-start; }
         .outgoing { align-self: flex-end; flex-direction: row-reverse; }
-        .bubble { padding: 10px 14px; border-radius: 18px; font-size: 14px; word-break: break-word; background: #303030; color: #fff; }
+        .bubble { padding: 10px 14px; border-radius: 18px; font-size: 14px; word-break: break-word; background: #303030; color: #fff; position: relative; }
         .outgoing .bubble { background: #0084ff; }
         .container { max-width: 600px; margin: 0 auto; padding-top: 10px; }
+        
+        /* Tombol hapus pesan */
+        .delete-btn { background: none; border: none; color: #ff6b6b; font-size: 11px; cursor: pointer; padding: 0; margin-top: 4px; display: block; text-align: right; width: 100%; font-weight: bold; }
         
         /* Style untuk dropdown hasil pencarian teman */
         .dropdown-container { position: relative; width: 90%; max-width: 400px; margin-bottom: 10px; }
@@ -30,7 +33,7 @@
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
-        import { getDatabase, ref, set, get, child, push, onChildAdded, remove, off } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
+        import { getDatabase, ref, set, get, child, push, onChildAdded, onChildRemoved, remove, off } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDrDQ5buiL2or_YYdzEaRT6Cajxv7x6zhQ",
@@ -138,6 +141,24 @@
                 inputElem.value = "";
             } catch (e) {
                 alert("Gagal mengirim pesan.");
+            }
+        };
+
+        window.hapusPesan = async (jenis, messageId) => {
+            if(!confirm("Hapus pesan ini?")) return;
+            const nama = localStorage.getItem("currentNama");
+            let path = '';
+            if (jenis === 'global') {
+                path = `chats/global/${messageId}`;
+            } else {
+                if(!selectedTargetTeman) return;
+                const roomKey = [nama, selectedTargetTeman].sort().join("_");
+                path = `chats/private/${roomKey}/${messageId}`;
+            }
+            try {
+                await remove(ref(db, path));
+            } catch (e) {
+                alert("Gagal menghapus pesan.");
             }
         };
 
@@ -250,14 +271,24 @@
             if (!currentNama) return;
 
             const roomKey = [currentNama, target].sort().join("_");
-            currentPrivateListener = ref(db, `chats/private/` + roomKey);
-            onChildAdded(currentPrivateListener, (d) => {
+            const chatRef = ref(db, `chats/private/` + roomKey);
+            currentPrivateListener = chatRef;
+
+            onChildAdded(chatRef, (d) => {
                 const c = d.val();
+                const msgId = d.key;
                 if(c && c.pengirim && c.teks) {
                     const isMe = c.pengirim === currentNama;
-                    box.innerHTML += `<div class="chat-row ${isMe ? 'outgoing' : 'incoming'}"><div class="bubble"><b>${c.pengirim}:</b><br>${c.teks}</div></div>`;
+                    let deleteOption = isMe ? `<button class="delete-btn" onclick="hapusPesan('private', '${msgId}')">Hapus</button>` : '';
+                    box.innerHTML += `<div class="chat-row ${isMe ? 'outgoing' : 'incoming'}" id="msg-${msgId}"><div class="bubble"><b>${c.pengirim}:</b><br>${c.teks}${deleteOption}</div></div>`;
                     box.scrollTop = box.scrollHeight;
                 }
+            });
+
+            onChildRemoved(chatRef, (d) => {
+                const msgId = d.key;
+                const el = document.getElementById(`msg-${msgId}`);
+                if(el) el.remove();
             });
         }
 
@@ -273,14 +304,23 @@
             const currentNama = localStorage.getItem("currentNama");
             if(currentNama) {
                 window.tampilkanHalaman('page-main');
-                onChildAdded(ref(db, 'chats/global'), (d) => {
+                const globalRef = ref(db, 'chats/global');
+                onChildAdded(globalRef, (d) => {
                     const c = d.val();
+                    const msgId = d.key;
                     const globalBox = document.getElementById("chatBox-global");
                     if(c && c.pengirim && c.teks && globalBox) {
                         const isMe = c.pengirim === currentNama;
-                        globalBox.innerHTML += `<div class="chat-row ${isMe ? 'outgoing' : 'incoming'}"><div class="bubble"><b>${c.pengirim}:</b><br>${c.teks}</div></div>`;
+                        let deleteOption = isMe ? `<button class="delete-btn" onclick="hapusPesan('global', '${msgId}')">Hapus</button>` : '';
+                        globalBox.innerHTML += `<div class="chat-row ${isMe ? 'outgoing' : 'incoming'}" id="global-${msgId}"><div class="bubble"><b>${c.pengirim}:</b><br>${c.teks}${deleteOption}</div></div>`;
                         globalBox.scrollTop = globalBox.scrollHeight;
                     }
+                });
+
+                onChildRemoved(globalRef, (d) => {
+                    const msgId = d.key;
+                    const el = document.getElementById(`global-${msgId}`);
+                    if(el) el.remove();
                 });
             } else { 
                 window.tampilkanHalaman('page-auth'); 
