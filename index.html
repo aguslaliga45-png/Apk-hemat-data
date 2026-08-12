@@ -15,7 +15,8 @@
             updateProfile,
             GoogleAuthProvider,
             FacebookAuthProvider,
-            signInWithPopup,
+            signInWithRedirect,
+            getRedirectResult,
             RecaptchaVerifier,
             signInWithPhoneNumber
         } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
@@ -37,14 +38,36 @@
 
         let confirmationResultPhone = null;
 
-        // Inisialisasi reCAPTCHA untuk nomor HP
-        window.addEventListener('load', () => {
+        // Inisialisasi reCAPTCHA & Handle Redirect Result
+        window.addEventListener('load', async () => {
             window.recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
                 'size': 'invisible'
             }, auth);
+
+            // Menangani hasil login redirect Google/Facebook saat halaman dimuat ulang
+            try {
+                const result = await getRedirectResult(auth);
+                if (result) {
+                    const user = result.user;
+                    await simpanUserKeDatabase(user);
+                }
+            } catch (err) {
+                console.error("Redirect Error:", err);
+            }
         });
 
-        // Status Auth Observer
+        // Simpan data profil ke Firestore
+        async function simpanUserKeDatabase(user, customNama = "") {
+            const namaTampil = customNama || user.displayName || user.phoneNumber || user.email;
+            await setDoc(doc(db, "users", user.uid), {
+                nama: namaTampil,
+                email: user.email || "",
+                phone: user.phoneNumber || "",
+                uid: user.uid
+            }, { merge: true });
+        }
+
+        // Status Observer Auth
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 document.getElementById("auth-section").style.display = "none";
@@ -53,14 +76,7 @@
                 const namaTampil = user.displayName || user.phoneNumber || user.email;
                 document.getElementById("user-info").innerText = "Login sebagai: " + namaTampil;
                 
-                // Pastikan user tersimpan di Firestore jika login via OAuth/Phone
-                await setDoc(doc(db, "users", user.uid), {
-                    nama: namaTampil,
-                    email: user.email || "",
-                    phone: user.phoneNumber || "",
-                    uid: user.uid
-                }, { merge: true });
-
+                await simpanUserKeDatabase(user);
                 muatDaftarTemanSaya();
             } else {
                 document.getElementById("auth-section").style.display = "block";
@@ -68,7 +84,7 @@
             }
         });
 
-        // 1. Fungsi Daftar Email
+        // 1. Daftar Akun Email Baru
         window.daftar = async () => {
             const nama = document.getElementById("namaProfil").value.trim();
             const email = document.getElementById("email").value.trim();
@@ -80,14 +96,14 @@
             try {
                 const res = await createUserWithEmailAndPassword(auth, email, pass);
                 await updateProfile(res.user, { displayName: nama });
-                await setDoc(doc(db, "users", res.user.uid), { nama, email, uid: res.user.uid });
+                await simpanUserKeDatabase(res.user, nama);
                 alert("Pendaftaran berhasil!");
             } catch (err) {
                 alert("Gagal daftar: " + err.message);
             }
         };
 
-        // 2. Fungsi Login Email
+        // 2. Login Email
         window.masuk = async () => {
             const email = document.getElementById("email").value.trim();
             const pass = document.getElementById("password").value;
@@ -99,27 +115,27 @@
             }
         };
 
-        // 3. Login Google
+        // 3. Daftar / Login Google (Redirect Mode)
         window.loginGoogle = async () => {
             const provider = new GoogleAuthProvider();
             try {
-                await signInWithPopup(auth, provider);
+                await signInWithRedirect(auth, provider);
             } catch (err) {
-                alert("Gagal Login Google: " + err.message);
+                alert("Gagal Google Auth: " + err.message);
             }
         };
 
-        // 4. Login Facebook
+        // 4. Daftar / Login Facebook (Redirect Mode)
         window.loginFacebook = async () => {
             const provider = new FacebookAuthProvider();
             try {
-                await signInWithPopup(auth, provider);
+                await signInWithRedirect(auth, provider);
             } catch (err) {
-                alert("Gagal Login Facebook: " + err.message);
+                alert("Gagal Facebook Auth: " + err.message);
             }
         };
 
-        // 5. Kirim OTP No. HP
+        // 5. Kirim OTP SMS No. HP
         window.kirimOTP = async () => {
             const phone = document.getElementById("phoneInput").value.trim();
             if (!phone.startsWith("+")) return alert("Sertakan kode negara! Contoh: +628123456789");
@@ -128,28 +144,29 @@
                 const appVerifier = window.recaptchaVerifier;
                 confirmationResultPhone = await signInWithPhoneNumber(auth, phone, appVerifier);
                 document.getElementById("otp-container").style.display = "block";
-                alert("Kode OTP berhasil dikirim melalui SMS.");
+                alert("Kode OTP dikirim melalui SMS.");
             } catch (err) {
-                alert("Gagal kirim SMS OTP: " + err.message);
+                alert("Gagal kirim OTP: " + err.message);
             }
         };
 
-        // 6. Verifikasi OTP No. HP
+        // 6. Verifikasi OTP SMS
         window.verifikasiOTP = async () => {
             const code = document.getElementById("otpInput").value.trim();
             if (!code) return alert("Masukkan kode OTP!");
             try {
-                await confirmationResultPhone.confirm(code);
-                alert("Login Nomor HP Berhasil!");
+                const res = await confirmationResultPhone.confirm(code);
+                await simpanUserKeDatabase(res.user);
+                alert("Login/Daftar No HP Berhasil!");
             } catch (err) {
                 alert("Kode OTP salah: " + err.message);
             }
         };
 
-        // Fungsi Logout
+        // Logout
         window.keluar = () => signOut(auth);
 
-        // Fitur Cari Teman
+        // Cari Teman
         window.cariTeman = async () => {
             const keyword = document.getElementById("inputCariNama").value.trim();
             const hasilContainer = document.getElementById("hasilPencarian");
@@ -181,7 +198,7 @@
             }
         };
 
-        // Fitur Tambah Teman
+        // Tambah Teman
         window.tambahTeman = async (friendUid, friendNama) => {
             try {
                 const myUid = auth.currentUser.uid;
@@ -197,7 +214,7 @@
             }
         };
 
-        // Muat Daftar Teman Saya
+        // Muat Teman Saya
         async function muatDaftarTemanSaya() {
             try {
                 const myUid = auth.currentUser.uid;
@@ -219,7 +236,7 @@
             }
         }
 
-        // Fitur Video Call
+        // Video Call
         window.mulaiCall = (namaTeman) => {
             const roomName = "AplikasiHematDataCall_" + btoa((auth.currentUser.displayName || auth.currentUser.uid) + namaTeman).substring(0, 10);
             window.open("https://meet.jit.si/" + roomName, "_blank");
@@ -228,50 +245,51 @@
 </head>
 <body style="font-family: sans-serif; padding: 15px; max-width: 500px; margin: 0 auto;">
 
-    <!-- Container Tersembunyi reCAPTCHA -->
     <div id="recaptcha-container"></div>
 
     <!-- Bagian Login / Daftar -->
     <div id="auth-section">
-        <h2>Masuk atau Daftar Aplikasi</h2>
+        <h2>Daftar & Masuk Aplikasi</h2>
         
-        <!-- Form Email -->
+        <!-- Input Email & Password -->
         <input type="text" id="namaProfil" placeholder="Nama Profil..." style="padding:10px; margin-bottom:8px; width:100%; box-sizing: border-box;"><br>
         <input type="email" id="email" placeholder="Email..." style="padding:10px; margin-bottom:8px; width:100%; box-sizing: border-box;"><br>
         <input type="password" id="password" placeholder="Password (min 6 karakter)..." style="padding:10px; margin-bottom:12px; width:100%; box-sizing: border-box;"><br>
-        <button onclick="masuk()" style="padding:10px 18px; cursor: pointer;">Login Email</button>
-        <button onclick="daftar()" style="padding:10px 18px; cursor: pointer;">Daftar Baru</button>
+        
+        <div style="display:flex; gap:10px; margin-bottom:15px;">
+            <button onclick="masuk()" style="flex:1; padding:10px; cursor: pointer;">Login Email</button>
+            <button onclick="daftar()" style="flex:1; padding:10px; cursor: pointer;">Daftar Email</button>
+        </div>
 
-        <hr style="margin: 20px 0;">
+        <hr style="margin: 15px 0;">
 
-        <!-- Login Sosial Media -->
+        <!-- Otentikasi Sosial Media -->
         <button onclick="loginGoogle()" style="padding:10px; width:100%; margin-bottom:8px; background:#4285F4; color:white; border:none; border-radius:4px; cursor:pointer;">
-            🌐 Login dengan Google
+            🌐 Masuk / Daftar dengan Google
         </button>
         <button onclick="loginFacebook()" style="padding:10px; width:100%; margin-bottom:15px; background:#1877F2; color:white; border:none; border-radius:4px; cursor:pointer;">
-            📘 Login dengan Facebook
+            📘 Masuk / Daftar dengan Facebook
         </button>
 
-        <hr style="margin: 20px 0;">
+        <hr style="margin: 15px 0;">
 
-        <!-- Login Nomor Telepon -->
-        <h3>Login via Nomor HP</h3>
+        <!-- Otentikasi Nomor HP -->
+        <h3>Daftar / Masuk via Nomor HP</h3>
         <input type="tel" id="phoneInput" placeholder="Contoh: +628123456789" style="padding:10px; width:100%; box-sizing: border-box; margin-bottom:8px;"><br>
         <button onclick="kirimOTP()" style="padding:8px 15px; cursor:pointer;">Kirim OTP SMS</button>
 
         <div id="otp-container" style="display:none; margin-top:10px;">
             <input type="number" id="otpInput" placeholder="Masukkan 6 Digit OTP..." style="padding:10px; width:100%; box-sizing: border-box; margin-bottom:8px;"><br>
-            <button onclick="verifikasiOTP()" style="padding:8px 15px; background:green; color:white; border:none; cursor:pointer;">Verifikasi & Login</button>
+            <button onclick="verifikasiOTP()" style="padding:8px 15px; background:green; color:white; border:none; cursor:pointer;">Verifikasi & Masuk</button>
         </div>
     </div>
 
-    <!-- Bagian Utama Aplikasi Setelah Login -->
+    <!-- Bagian Utama Aplikasi -->
     <div id="app-section" style="display:none;">
         <span id="user-info" style="font-weight:bold;"></span> 
         <button onclick="keluar()" style="float:right; background:red; color:white; border:none; padding:6px 12px; cursor: pointer;">Logout</button>
         <hr style="margin-top: 15px;">
         
-        <!-- Fitur Cari & Tambah Teman -->
         <h3>Cari & Tambah Teman</h3>
         <input type="text" id="inputCariNama" placeholder="Ketik nama profil teman..." style="padding: 8px; width: 60%;">
         <button onclick="cariTeman()" style="padding: 8px 12px; cursor: pointer;">🔍 Cari</button>
