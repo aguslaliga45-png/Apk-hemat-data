@@ -3,36 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aplikasi Super App - Fix</title>
+    <title>Facebook Dark Lite</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: #18191a; color: #e4e6eb; padding: 10px; max-width: 600px; margin: 0 auto; }
+        .card { background: #242526; padding: 15px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); margin-bottom: 15px; border: 1px solid #3a3b3c; }
+        h2, h3, h4 { color: #2d88ff; margin-bottom: 12px; }
+        input, button { width: 100%; padding: 11px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #3a3b3c; outline: none; background: #3a3b3c; color: #e4e6eb; font-size: 14px; }
+        input::placeholder { color: #b0b3b8; }
+        button { background: #2d88ff; color: white; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:hover { background: #1a73e8; }
+        button.btn-danger { background: #e41e3f; }
+        button.btn-success { background: #31a24c; }
+        button.btn-secondary { background: #4e4f50; }
+        .header-profile { display: flex; align-items: center; justify-content: space-between; }
+        .user-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid #2d88ff; background: #3a3b3c; }
+        .friend-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #3a3b3c; }
+        .friend-info { display: flex; align-items: center; gap: 12px; }
+        .status-dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; }
+        .online { background-color: #31a24c; }
+        .offline { background-color: #b0b3b8; }
+        .action-btns { display: flex; gap: 6px; }
+        .action-btns button { padding: 6px 10px; font-size: 13px; width: auto; margin-bottom: 0; }
+        #chat-box { height: 220px; overflow-y: auto; border: 1px solid #3a3b3c; padding: 10px; border-radius: 8px; margin-bottom: 10px; background: #18191a; }
+        .chat-msg { margin-bottom: 8px; font-size: 13px; line-height: 1.4; }
+        .chat-msg.me { text-align: right; color: #2d88ff; font-weight: bold; }
+    </style>
+
+    <!-- Firebase SDK Modular -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
         import { 
-            getAuth, 
-            createUserWithEmailAndPassword, 
-            signInWithEmailAndPassword, 
-            onAuthStateChanged, 
-            signOut, 
-            updateProfile,
-            updateEmail,
-            GoogleAuthProvider,
-            FacebookAuthProvider,
-            signInWithPopup,
-            RecaptchaVerifier,
-            signInWithPhoneNumber
+            getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, 
+            onAuthStateChanged, signOut, updateProfile 
         } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
         import { 
-            getFirestore, 
-            collection, 
-            setDoc, 
-            doc, 
-            getDoc,
-            getDocs, 
-            query, 
-            where, 
-            onSnapshot 
+            getFirestore, collection, setDoc, doc, getDoc, getDocs, 
+            query, where, onSnapshot, addDoc, orderBy 
         } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 
-        // Konfigurasi Firebase
+        // Gambar Avatar Default (SVG Base64)
+        const DEFAULT_AVATAR = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23b0b3b8'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm0 14c-2.03 0-3.8-.85-5.05-2.2.03-1.67 3.37-2.58 5.05-2.58 1.67 0 5.02.91 5.05 2.58C15.8 19.15 14.03 20 12 20z'/></svg>";
+
         const firebaseConfig = {
             apiKey: "AIzaSyDrDQ5buiL2or_YYdzEaRT6Cajxv7x6zhQ",
             authDomain: "aplikasi-hemat-data.firebaseapp.com",
@@ -42,61 +54,29 @@
             appId: "1:57465772327:web:df1fcdb0b0ad68d2307102"
         };
 
-        // Inisialisasi Firebase
         let app, auth, db;
+        let activeChatFriendUid = null;
+        let unsubscribeChat = null;
+
         try {
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
         } catch (e) {
-            console.error("Gagal Inisialisasi Firebase:", e);
+            console.error("Firebase Error:", e);
         }
 
-        let confirmationResultPhone = null;
-
-        // Inisialisasi Recaptcha dengan aman saat halaman selesai dimuat
-        window.addEventListener('DOMContentLoaded', () => {
-            try {
-                if (auth) {
-                    window.recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
-                        'size': 'invisible'
-                    }, auth);
-                }
-            } catch (err) {
-                console.warn("Recaptcha Init Warning:", err);
-            }
-        });
-
-        async function simpanUserKeDatabase(user, customNama = "") {
-            if (!db || !user) return;
-            const namaTampil = customNama || user.displayName || user.phoneNumber || user.email || "Pengguna";
-            await setDoc(doc(db, "users", user.uid), {
-                nama: namaTampil,
-                email: user.email || "",
-                phone: user.phoneNumber || "",
-                uid: user.uid,
-                isOnline: true,
-                photoURL: user.photoURL || ""
-            }, { merge: true });
-        }
-
-        // Pantau Status Autentikasi User
         if (auth) {
             onAuthStateChanged(auth, async (user) => {
                 const authSec = document.getElementById("auth-section");
                 const appSec = document.getElementById("app-section");
 
                 if (user) {
-                    if (authSec) authSec.style.display = "none";
-                    if (appSec) appSec.style.display = "block";
-                    
-                    try {
-                        await simpanUserKeDatabase(user);
-                        muatProfilSaya(user);
-                        pantauDaftarTemanSaya();
-                    } catch (e) {
-                        console.error("Error Muat Data User:", e);
-                    }
+                    authSec.style.display = "none";
+                    appSec.style.display = "block";
+                    await simpanUserKeDatabase(user);
+                    muatProfilSaya(user);
+                    pantauDaftarTeman();
 
                     window.addEventListener("beforeunload", () => {
                         if (auth.currentUser && db) {
@@ -104,363 +84,340 @@
                         }
                     });
                 } else {
-                    if (authSec) authSec.style.display = "block";
-                    if (appSec) appSec.style.display = "none";
+                    authSec.style.display = "block";
+                    appSec.style.display = "none";
                 }
             });
         }
 
+        async function simpanUserKeDatabase(user, customNama = "") {
+            if (!db || !user) return;
+            const namaTampil = customNama || user.displayName || user.email.split('@')[0];
+            await setDoc(doc(db, "users", user.uid), {
+                nama: namaTampil,
+                email: user.email,
+                uid: user.uid,
+                isOnline: true
+            }, { merge: true });
+        }
+
         async function muatProfilSaya(user) {
-            try {
-                const userDoc = await getDoc(doc(db, "users", user.uid));
-                const data = userDoc.exists() ? userDoc.data() : {};
+            const userDoc = await getDoc(doc(db, "users", user.uid));
+            const data = userDoc.exists() ? userDoc.data() : {};
+            const namaTampil = data.nama || user.displayName || user.email;
+            
+            document.getElementById("my-name").innerText = namaTampil;
+            document.getElementById("inputNamaBaru").value = namaTampil;
 
-                const namaTampil = data.nama || user.displayName || user.email || "Pengguna";
-                document.getElementById("user-info").innerText = "Login sebagai: " + namaTampil;
-                document.getElementById("inputNamaBaru").value = namaTampil;
-                document.getElementById("inputEmailBaru").value = user.email || "";
-
-                const fotoURL = data.photoURL || "https://via.placeholder.com/100";
-                document.getElementById("imgFotoProfil").src = fotoURL;
-                document.getElementById("previewFoto").src = fotoURL;
-            } catch (err) {
-                console.error("Gagal muat profil:", err);
-            }
+            const fotoURL = data.photoURL || DEFAULT_AVATAR;
+            document.getElementById("my-avatar").src = fotoURL;
+            document.getElementById("previewFoto").src = fotoURL;
         }
 
-        // Navigasi Pengaturan
-        window.toggleSettings = () => {
-            const el = document.getElementById("settings-section");
-            el.style.display = (el.style.display === "none" || el.style.display === "") ? "block" : "none";
-            tutupSemuaSubMenu();
-        };
-
-        window.bukaSubMenu = (menuId) => {
-            tutupSemuaSubMenu();
-            const target = document.getElementById(menuId);
-            if (target) target.style.display = "block";
-        };
-
-        function tutupSemuaSubMenu() {
-            ["sub-foto", "sub-nama", "sub-email", "sub-pin"].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.style.display = "none";
-            });
-        }
-
-        // --- FITUR UNGGAN FOTO PROFIL (KOMPRESI AUTOMATIS) ---
-        window.bukaKamera = () => document.getElementById("inputKamera").click();
-        window.bukaAlbum = () => document.getElementById("inputAlbum").click();
-
-        window.prosesFoto = (event) => {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const img = new Image();
-                img.onload = () => {
-                    const canvas = document.createElement("canvas");
-                    const ctx = canvas.getContext("2d");
-                    
-                    const maxDim = 300; // Resize maks 300px agar Firestore hemat & lancar
-                    let width = img.width;
-                    let height = img.height;
-
-                    if (width > height) {
-                        if (width > maxDim) {
-                            height *= maxDim / width;
-                            width = maxDim;
-                        }
-                    } else {
-                        if (height > maxDim) {
-                            width *= maxDim / height;
-                            height = maxDim;
-                        }
-                    }
-
-                    canvas.width = width;
-                    canvas.height = height;
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    // Konversi ke format JPEG dengan kompresi 70%
-                    const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
-                    document.getElementById("previewFoto").src = compressedBase64;
-                };
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-        };
-
-        window.simpanFotoProfil = async () => {
-            const user = auth.currentUser;
-            if (!user) return alert("Sesi login berakhir, silakan re-login!");
-
-            const fotoBase64 = document.getElementById("previewFoto").src;
-            if (!fotoBase64 || fotoBase64.includes("via.placeholder.com")) {
-                return alert("Silakan pilih foto terlebih dahulu!");
-            }
-
-            try {
-                await setDoc(doc(db, "users", user.uid), { photoURL: fotoBase64 }, { merge: true });
-                document.getElementById("imgFotoProfil").src = fotoBase64;
-                alert("Foto profil berhasil diunggah!");
-                tutupSemuaSubMenu();
-            } catch (err) {
-                console.error("Gagal upload foto:", err);
-                alert("Gagal mengunggah foto: " + err.message);
-            }
-        };
-
-        // --- FITUR EDIT PROFIL LAINNYA ---
-        window.simpanNama = async () => {
-            const user = auth.currentUser;
-            const namaBaru = document.getElementById("inputNamaBaru").value.trim();
-            if (!namaBaru) return alert("Nama tidak boleh kosong!");
-            try {
-                await updateProfile(user, { displayName: namaBaru });
-                await setDoc(doc(db, "users", user.uid), { nama: namaBaru }, { merge: true });
-                document.getElementById("user-info").innerText = "Login sebagai: " + namaBaru;
-                alert("Nama berhasil diperbarui!");
-                tutupSemuaSubMenu();
-            } catch (err) {
-                alert("Gagal mengubah nama: " + err.message);
-            }
-        };
-
-        window.simpanEmail = async () => {
-            const user = auth.currentUser;
-            const emailBaru = document.getElementById("inputEmailBaru").value.trim();
-            if (!emailBaru) return alert("Email tidak boleh kosong!");
-            try {
-                await updateEmail(user, emailBaru);
-                await setDoc(doc(db, "users", user.uid), { email: emailBaru }, { merge: true });
-                alert("Email berhasil diperbarui!");
-                tutupSemuaSubMenu();
-            } catch (err) {
-                alert("Gagal mengubah email (Silakan login ulang lalu coba lagi): " + err.message);
-            }
-        };
-
-        window.simpanPin = async () => {
-            const user = auth.currentUser;
-            const pinBaru = document.getElementById("inputPinBaru").value.trim();
-            if (pinBaru.length < 6) return alert("PIN minimal 6 digit!");
-            try {
-                await setDoc(doc(db, "users", user.uid), { pin: pinBaru }, { merge: true });
-                document.getElementById("inputPinBaru").value = "";
-                alert("PIN Keamanan berhasil disimpan!");
-                tutupSemuaSubMenu();
-            } catch (err) {
-                alert("Gagal menyimpan PIN: " + err.message);
-            }
-        };
-
-        // --- AUTHENTICATION ---
         window.daftar = async () => {
-            const nama = document.getElementById("namaProfil").value.trim();
-            const email = document.getElementById("email").value.trim();
-            const pass = document.getElementById("password").value;
+            const nama = document.getElementById("regNama").value.trim();
+            const email = document.getElementById("regEmail").value.trim();
+            const pass = document.getElementById("regPass").value;
 
-            if (!nama || !email || !pass) return alert("Isi Nama, Email, dan Password!");
+            if (!nama || !email || !pass) return alert("Harap isi semua kolom!");
             if (pass.length < 6) return alert("Password minimal 6 karakter!");
 
             try {
                 const res = await createUserWithEmailAndPassword(auth, email, pass);
                 await updateProfile(res.user, { displayName: nama });
                 await simpanUserKeDatabase(res.user, nama);
-                alert("Pendaftaran berhasil!");
+                alert("Pendaftaran Berhasil!");
             } catch (err) {
-                alert("Gagal pendaftaran: " + err.message);
+                alert("Gagal Daftar: " + err.message);
             }
         };
 
         window.masuk = async () => {
-            const email = document.getElementById("email").value.trim();
-            const pass = document.getElementById("password").value;
+            const email = document.getElementById("loginEmail").value.trim();
+            const pass = document.getElementById("loginPass").value;
             if (!email || !pass) return alert("Masukkan email dan password!");
+
             try {
                 await signInWithEmailAndPassword(auth, email, pass);
             } catch (err) {
-                alert("Gagal login: " + err.message);
-            }
-        };
-
-        window.loginGoogle = async () => {
-            const provider = new GoogleAuthProvider();
-            try {
-                const result = await signInWithPopup(auth, provider);
-                await simpanUserKeDatabase(result.user);
-            } catch (err) {
-                alert("Gagal Google Login: " + err.message);
-            }
-        };
-
-        window.loginFacebook = async () => {
-            const provider = new FacebookAuthProvider();
-            try {
-                const result = await signInWithPopup(auth, provider);
-                await simpanUserKeDatabase(result.user);
-            } catch (err) {
-                alert("Gagal Facebook Login: " + err.message);
-            }
-        };
-
-        window.kirimOTP = async () => {
-            const phone = document.getElementById("phoneInput").value.trim();
-            if (!phone.startsWith("+")) return alert("Sertakan kode negara! Contoh: +628123456789");
-
-            try {
-                const appVerifier = window.recaptchaVerifier;
-                confirmationResultPhone = await signInWithPhoneNumber(auth, phone, appVerifier);
-                document.getElementById("otp-container").style.display = "block";
-                alert("Kode OTP SMS dikirim!");
-            } catch (err) {
-                alert("Gagal kirim OTP: " + err.message);
-            }
-        };
-
-        window.verifikasiOTP = async () => {
-            const code = document.getElementById("otpInput").value.trim();
-            if (!code) return alert("Masukkan kode OTP!");
-            try {
-                const res = await confirmationResultPhone.confirm(code);
-                await simpanUserKeDatabase(res.user);
-                alert("Login nomor HP Berhasil!");
-            } catch (err) {
-                alert("Kode OTP salah: " + err.message);
+                alert("Gagal Login: " + err.message);
             }
         };
 
         window.keluar = async () => {
-            if (auth.currentUser && db) {
+            if (auth.currentUser) {
                 await setDoc(doc(db, "users", auth.currentUser.uid), { isOnline: false }, { merge: true });
             }
             signOut(auth);
         };
 
-        // --- SISTEM PERTEMANAN ---
+        window.toggleSettings = () => {
+            const el = document.getElementById("settings-section");
+            el.style.display = (el.style.display === "none" || el.style.display === "") ? "block" : "none";
+        };
+
+        window.prosesFoto = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement("canvas");
+                    const ctx = canvas.getContext("2d");
+                    const maxDim = 250;
+                    let width = img.width, height = img.height;
+
+                    if (width > height) {
+                        if (width > maxDim) { height *= maxDim / width; width = maxDim; }
+                    } else {
+                        if (height > maxDim) { width *= maxDim / height; height = maxDim; }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
+                    document.getElementById("previewFoto").src = compressedBase64;
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.simpanProfil = async () => {
+            const user = auth.currentUser;
+            const namaBaru = document.getElementById("inputNamaBaru").value.trim();
+            const fotoBase64 = document.getElementById("previewFoto").src;
+
+            if (!namaBaru) return alert("Nama tidak boleh kosong!");
+
+            try {
+                await updateProfile(user, { displayName: namaBaru });
+                await setDoc(doc(db, "users", user.uid), { 
+                    nama: namaBaru, 
+                    photoURL: fotoBase64 
+                }, { merge: true });
+
+                document.getElementById("my-name").innerText = namaBaru;
+                document.getElementById("my-avatar").src = fotoBase64;
+                alert("Profil Berhasil Diperbarui!");
+                toggleSettings();
+            } catch (err) {
+                alert("Gagal memperbarui profil: " + err.message);
+            }
+        };
+
         window.cariTeman = async () => {
             const keyword = document.getElementById("inputCariNama").value.trim();
-            const hasilContainer = document.getElementById("hasilPencarian");
-            hasilContainer.innerHTML = "";
+            const container = document.getElementById("hasilPencarian");
+            container.innerHTML = "";
 
-            if (!keyword) return alert("Ketik nama teman!");
+            if (!keyword) return alert("Masukkan nama yang dicari!");
 
             try {
                 const q = query(collection(db, "users"), where("nama", "==", keyword));
-                const querySnapshot = await getDocs(q);
+                const snapshot = await getDocs(q);
 
-                if (querySnapshot.empty) {
-                    hasilContainer.innerHTML = "<p style='color:red;'>Pengguna tidak ditemukan.</p>";
+                if (snapshot.empty) {
+                    container.innerHTML = "<p style='color:#e41e3f; font-size:13px;'>Pengguna tidak ditemukan.</p>";
                     return;
                 }
 
-                querySnapshot.forEach((docSnapshot) => {
-                    const userData = docSnapshot.data();
-                    if (userData.uid !== auth.currentUser.uid) {
-                        hasilContainer.innerHTML += `
-                            <p style="margin:5px 0;">
-                                <b>${userData.nama}</b> 
-                                <button onclick="tambahTeman('${userData.uid}', '${userData.nama}')" style="padding: 3px 8px; cursor: pointer;">➕ Tambah Teman</button>
-                            </p>`;
+                snapshot.forEach((docSnap) => {
+                    const uData = docSnap.data();
+                    if (uData.uid !== auth.currentUser.uid) {
+                        container.innerHTML += `
+                            <div class="friend-item">
+                                <b>${uData.nama}</b>
+                                <button onclick="tambahTeman('${uData.uid}', '${uData.nama}')" class="btn-success" style="width:auto; padding:5px 10px;">➕ Tambah</button>
+                            </div>`;
                     }
                 });
             } catch (err) {
-                alert("Pencarian gagal: " + err.message);
+                alert("Gagal mencari: " + err.message);
             }
         };
 
-        window.tambahTeman = async (friendUid, friendNama) => {
+        window.tambahTeman = async (targetUid, targetNama) => {
             try {
                 const myUid = auth.currentUser.uid;
-                await setDoc(doc(db, "users", myUid, "teman", friendUid), {
-                    uid: friendUid,
-                    nama: friendNama,
-                    addedAt: new Date()
-                });
-                alert(`Berhasil menambahkan ${friendNama}!`);
+                await setDoc(doc(db, "users", myUid, "teman", targetUid), { uid: targetUid, nama: targetNama });
+                await setDoc(doc(db, "users", targetUid, "teman", myUid), { uid: myUid, nama: auth.currentUser.displayName || "Teman" });
+                
+                alert(`Berhasil berteman dengan ${targetNama}!`);
+                document.getElementById("hasilPencarian").innerHTML = "";
             } catch (err) {
-                alert("Gagal menambahkan teman: " + err.message);
+                alert("Gagal menambah teman: " + err.message);
             }
         };
 
-        function pantauDaftarTemanSaya() {
+        function pantauDaftarTeman() {
             const myUid = auth.currentUser.uid;
             onSnapshot(collection(db, "users", myUid, "teman"), (snapshot) => {
-                const listTeman = document.getElementById("listTeman");
-                listTeman.innerHTML = "";
+                const list = document.getElementById("listTeman");
+                list.innerHTML = "";
 
                 if (snapshot.empty) {
-                    listTeman.innerHTML = "<p><i>Belum ada teman.</i></p>";
+                    list.innerHTML = "<p style='font-size:13px; color:#b0b3b8;'>Belum ada teman. Cari nama teman di atas.</p>";
                     return;
                 }
 
                 snapshot.forEach((d) => {
-                    const teman = d.data();
-                    onSnapshot(doc(db, "users", teman.uid), (docUser) => {
-                        const dataUser = docUser.exists() ? docUser.data() : {};
-                        const statusOnline = dataUser.isOnline ? "🟢 <span style='color:green;'>Online</span>" : "🔴 <span style='color:gray;'>Offline</span>";
-                        const fotoTeman = dataUser.photoURL || "https://via.placeholder.com/40";
+                    const t = d.data();
+                    onSnapshot(doc(db, "users", t.uid), (userDoc) => {
+                        const u = userDoc.exists() ? userDoc.data() : {};
+                        const statusClass = u.isOnline ? "online" : "offline";
+                        const foto = u.photoURL || DEFAULT_AVATAR;
 
-                        const itemID = "teman-" + teman.uid;
-                        const existingItem = document.getElementById(itemID);
-                        
-                        const htmlContent = `
-                            <div id="${itemID}" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; padding:5px; border-bottom:1px solid #eee;">
-                                <div style="display:flex; align-items:center; gap:10px;">
-                                    <img src="${fotoTeman}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
+                        const itemHTML = `
+                            <div class="friend-item">
+                                <div class="friend-info">
+                                    <img src="${foto}" class="user-avatar" style="width:38px; height:38px;">
                                     <div>
-                                        <b>${dataUser.nama || teman.nama}</b><br>
-                                        <small>${statusOnline}</small>
+                                        <b>${u.nama || t.nama}</b><br>
+                                        <small><span class="status-dot ${statusClass}"></span> ${u.isOnline ? "Online" : "Offline"}</small>
                                     </div>
                                 </div>
-                                <button onclick="mulaiCall('${dataUser.nama || teman.nama}')" style="padding:5px 10px; cursor:pointer;">📞 Video Call</button>
+                                <div class="action-btns">
+                                    <button onclick="bukaChat('${t.uid}', '${u.nama || t.nama}')" class="btn-secondary">💬 Chat</button>
+                                    <button onclick="mulaiPanggilan('${u.nama || t.nama}', 'audio')" class="btn-success">📞</button>
+                                    <button onclick="mulaiPanggilan('${u.nama || t.nama}', 'video')">📹</button>
+                                </div>
                             </div>
                         `;
-
-                        if (existingItem) {
-                            existingItem.outerHTML = htmlContent;
-                        } else {
-                            listTeman.innerHTML += htmlContent;
-                        }
+                        const elem = document.getElementById("f-" + t.uid);
+                        if (elem) elem.outerHTML = itemHTML;
+                        else list.innerHTML += `<div id="f-${t.uid}">${itemHTML}</div>`;
                     });
                 });
             });
         }
 
-        window.mulaiCall = (namaTeman) => {
-            const roomName = "AplikasiHematDataCall_" + btoa((auth.currentUser.displayName || auth.currentUser.uid) + namaTeman).substring(0, 10);
-            window.open("https://meet.jit.si/" + roomName, "_blank");
+        window.bukaChat = (friendUid, friendNama) => {
+            activeChatFriendUid = friendUid;
+            document.getElementById("chat-title").innerText = "Chat dengan: " + friendNama;
+            document.getElementById("chat-section").style.display = "block";
+
+            const myUid = auth.currentUser.uid;
+            const chatId = myUid < friendUid ? `${myUid}_${friendUid}` : `${friendUid}_${myUid}`;
+
+            if (unsubscribeChat) unsubscribeChat();
+
+            const q = query(collection(db, "chats", chatId, "messages"), orderBy("timestamp", "asc"));
+            unsubscribeChat = onSnapshot(q, (snapshot) => {
+                const box = document.getElementById("chat-box");
+                box.innerHTML = "";
+                snapshot.forEach((docSnap) => {
+                    const msg = docSnap.data();
+                    const isMe = msg.senderUid === myUid;
+                    box.innerHTML += `<div class="chat-msg ${isMe ? 'me' : ''}"><b>${isMe ? 'Saya' : friendNama}:</b> ${msg.text}</div>`;
+                });
+                box.scrollTop = box.scrollHeight;
+            });
+        };
+
+        window.kirimPesan = async () => {
+            const input = document.getElementById("inputPesan");
+            const text = input.value.trim();
+            if (!text || !activeChatFriendUid) return;
+
+            const myUid = auth.currentUser.uid;
+            const chatId = myUid < activeChatFriendUid ? `${myUid}_${activeChatFriendUid}` : `${activeChatFriendUid}_${myUid}`;
+
+            await addDoc(collection(db, "chats", chatId, "messages"), {
+                senderUid: myUid,
+                text: text,
+                timestamp: new Date()
+            });
+
+            input.value = "";
+        };
+
+        window.mulaiPanggilan = (namaTeman, tipe) => {
+            const myUid = auth.currentUser.uid;
+            const roomUnique = "Room_" + btoa(myUid + namaTeman).replace(/=/g, "").substring(0, 12);
+            let url = `https://meet.jit.si/${roomUnique}`;
+            if (tipe === 'audio') url += "#config.startWithVideoMuted=true";
+            window.open(url, "_blank");
         };
     </script>
 </head>
-<body style="font-family: sans-serif; padding: 15px; max-width: 500px; margin: 0 auto;">
+<body>
 
-    <div id="recaptcha-container"></div>
-
-    <!-- Bagian Authentication -->
+    <!-- Autentikasi Dark -->
     <div id="auth-section">
-        <h2>Daftar & Masuk Aplikasi</h2>
-        
-        <input type="text" id="namaProfil" placeholder="Nama Profil..." style="padding:10px; margin-bottom:8px; width:100%; box-sizing: border-box;"><br>
-        <input type="email" id="email" placeholder="Email..." style="padding:10px; margin-bottom:8px; width:100%; box-sizing: border-box;"><br>
-        <input type="password" id="password" placeholder="Password (min 6 karakter)..." style="padding:10px; margin-bottom:12px; width:100%; box-sizing: border-box;"><br>
-        
-        <div style="display:flex; gap:10px; margin-bottom:15px;">
-            <button onclick="masuk()" style="flex:1; padding:10px; cursor: pointer;">Login Email</button>
-            <button onclick="daftar()" style="flex:1; padding:10px; cursor: pointer;">Daftar Email</button>
+        <div class="card">
+            <h2>Masuk ke Akun</h2>
+            <input type="email" id="loginEmail" placeholder="Email...">
+            <input type="password" id="loginPass" placeholder="Password...">
+            <button onclick="masuk()">Login</button>
         </div>
 
-        <hr style="margin: 15px 0;">
+        <div class="card">
+            <h2>Daftar Akun Baru</h2>
+            <input type="text" id="regNama" placeholder="Nama Lengkap...">
+            <input type="email" id="regEmail" placeholder="Email...">
+            <input type="password" id="regPass" placeholder="Password (Min 6 karakter)...">
+            <button onclick="daftar()" class="btn-success">Daftar</button>
+        </div>
+    </div>
 
-        <button onclick="loginGoogle()" style="padding:10px; width:100%; margin-bottom:8px; background:#4285F4; color:white; border:none; border-radius:4px; cursor:pointer;">
-            🌐 Masuk dengan Google
-        </button>
-        <button onclick="loginFacebook()" style="padding:10px; width:100%; margin-bottom:15px; background:#1877F2; color:white; border:none; border-radius:4px; cursor:pointer;">
-            📘 Masuk dengan Facebook
-        </button>
+    <!-- Aplikasi Utama Dark Mode -->
+    <div id="app-section" style="display:none;">
+        
+        <!-- Header Profil -->
+        <div class="card header-profile">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <img id="my-avatar" src="" class="user-avatar" alt="Foto Profil">
+                <b id="my-name" style="font-size:16px;">Loading...</b>
+            </div>
+            <div style="display:flex; gap:6px;">
+                <button onclick="toggleSettings()" class="btn-secondary" style="width:auto; padding:6px 12px;">⚙️ Edit</button>
+                <button onclick="keluar()" class="btn-danger" style="width:auto; padding:6px 12px;">Logout</button>
+            </div>
+        </div>
 
-        <hr style="margin: 15px 0;">
+        <!-- Panel Settings -->
+        <div id="settings-section" class="card" style="display:none;">
+            <h3>Edit Profil</h3>
+            <img id="previewFoto" src="" class="user-avatar" style="width:80px; height:80px; display:block; margin: 0 auto 12px;">
+            
+            <input type="file" id="fileFoto" accept="image/*" onchange="prosesFoto(event)" style="margin-bottom:12px;">
+            <input type="text" id="inputNamaBaru" placeholder="Nama Baru...">
+            
+            <button onclick="simpanProfil()" class="btn-success">Simpan Perubahan</button>
+        </div>
 
-        <h3>Daftar 
+        <!-- Cari Teman -->
+        <div class="card">
+            <h3>Cari & Tambah Teman</h3>
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="inputCariNama" placeholder="Ketik nama tepat teman..." style="margin-bottom:0;">
+                <button onclick="cariTeman()" style="width:auto; white-space:nowrap;">🔍 Cari</button>
+            </div>
+            <div id="hasilPencarian" style="margin-top:10px;"></div>
+        </div>
+
+        <!-- Daftar Teman -->
+        <div class="card">
+            <h3>Daftar Teman</h3>
+            <div id="listTeman"></div>
+        </div>
+
+        <!-- Chat Area -->
+        <div id="chat-section" class="card" style="display:none;">
+            <h3 id="chat-title">Chat</h3>
+            <div id="chat-box"></div>
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="inputPesan" placeholder="Ketik pesan..." style="margin-bottom:0;">
+                <button onclick="kirimPesan()" style="width:auto;">Kirim</button>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>
