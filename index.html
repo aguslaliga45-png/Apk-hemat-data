@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aplikasi Hemat Data - Super App</title>
+    <title>Aplikasi Super App - Fix</title>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
         import { 
@@ -16,8 +16,7 @@
             updateEmail,
             GoogleAuthProvider,
             FacebookAuthProvider,
-            signInWithRedirect,
-            getRedirectResult,
+            signInWithPopup,
             RecaptchaVerifier,
             signInWithPhoneNumber
         } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
@@ -33,6 +32,7 @@
             onSnapshot 
         } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 
+        // Konfigurasi Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyDrDQ5buiL2or_YYdzEaRT6Cajxv7x6zhQ",
             authDomain: "aplikasi-hemat-data.firebaseapp.com",
@@ -42,29 +42,34 @@
             appId: "1:57465772327:web:df1fcdb0b0ad68d2307102"
         };
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        // Inisialisasi Firebase
+        let app, auth, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (e) {
+            console.error("Gagal Inisialisasi Firebase:", e);
+        }
 
         let confirmationResultPhone = null;
 
-        window.addEventListener('load', async () => {
-            window.recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
-                'size': 'invisible'
-            }, auth);
-
+        // Inisialisasi Recaptcha dengan aman saat halaman selesai dimuat
+        window.addEventListener('DOMContentLoaded', () => {
             try {
-                const result = await getRedirectResult(auth);
-                if (result) {
-                    await simpanUserKeDatabase(result.user);
+                if (auth) {
+                    window.recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
+                        'size': 'invisible'
+                    }, auth);
                 }
             } catch (err) {
-                console.error("Redirect Error:", err);
+                console.warn("Recaptcha Init Warning:", err);
             }
         });
 
         async function simpanUserKeDatabase(user, customNama = "") {
-            const namaTampil = customNama || user.displayName || user.phoneNumber || user.email;
+            if (!db || !user) return;
+            const namaTampil = customNama || user.displayName || user.phoneNumber || user.email || "Pengguna";
             await setDoc(doc(db, "users", user.uid), {
                 nama: namaTampil,
                 email: user.email || "",
@@ -75,59 +80,75 @@
             }, { merge: true });
         }
 
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                document.getElementById("auth-section").style.display = "none";
-                document.getElementById("app-section").style.display = "block";
-                
-                await simpanUserKeDatabase(user);
-                muatProfilSaya(user);
-                pantauDaftarTemanSaya();
+        // Pantau Status Autentikasi User
+        if (auth) {
+            onAuthStateChanged(auth, async (user) => {
+                const authSec = document.getElementById("auth-section");
+                const appSec = document.getElementById("app-section");
 
-                window.addEventListener("beforeunload", () => {
-                    setDoc(doc(db, "users", user.uid), { isOnline: false }, { merge: true });
-                });
-            } else {
-                document.getElementById("auth-section").style.display = "block";
-                document.getElementById("app-section").style.display = "none";
-            }
-        });
+                if (user) {
+                    if (authSec) authSec.style.display = "none";
+                    if (appSec) appSec.style.display = "block";
+                    
+                    try {
+                        await simpanUserKeDatabase(user);
+                        muatProfilSaya(user);
+                        pantauDaftarTemanSaya();
+                    } catch (e) {
+                        console.error("Error Muat Data User:", e);
+                    }
 
-        async function muatProfilSaya(user) {
-            const userDoc = await getDoc(doc(db, "users", user.uid));
-            const data = userDoc.exists() ? userDoc.data() : {};
-
-            const namaTampil = data.nama || user.displayName || user.email;
-            document.getElementById("user-info").innerText = "Login sebagai: " + namaTampil;
-            document.getElementById("inputNamaBaru").value = namaTampil;
-            document.getElementById("inputEmailBaru").value = user.email || "";
-
-            const fotoURL = data.photoURL || "https://via.placeholder.com/100";
-            document.getElementById("imgFotoProfil").src = fotoURL;
-            document.getElementById("previewFoto").src = fotoURL;
+                    window.addEventListener("beforeunload", () => {
+                        if (auth.currentUser && db) {
+                            setDoc(doc(db, "users", auth.currentUser.uid), { isOnline: false }, { merge: true });
+                        }
+                    });
+                } else {
+                    if (authSec) authSec.style.display = "block";
+                    if (appSec) appSec.style.display = "none";
+                }
+            });
         }
 
-        // Toggle Menu Pengaturan Utamanya
+        async function muatProfilSaya(user) {
+            try {
+                const userDoc = await getDoc(doc(db, "users", user.uid));
+                const data = userDoc.exists() ? userDoc.data() : {};
+
+                const namaTampil = data.nama || user.displayName || user.email || "Pengguna";
+                document.getElementById("user-info").innerText = "Login sebagai: " + namaTampil;
+                document.getElementById("inputNamaBaru").value = namaTampil;
+                document.getElementById("inputEmailBaru").value = user.email || "";
+
+                const fotoURL = data.photoURL || "https://via.placeholder.com/100";
+                document.getElementById("imgFotoProfil").src = fotoURL;
+                document.getElementById("previewFoto").src = fotoURL;
+            } catch (err) {
+                console.error("Gagal muat profil:", err);
+            }
+        }
+
+        // Navigasi Pengaturan
         window.toggleSettings = () => {
             const el = document.getElementById("settings-section");
-            el.style.display = (el.style.display === "none") ? "block" : "none";
+            el.style.display = (el.style.display === "none" || el.style.display === "") ? "block" : "none";
             tutupSemuaSubMenu();
         };
 
-        // Buka Sub-Menu Terpisah
         window.bukaSubMenu = (menuId) => {
             tutupSemuaSubMenu();
-            document.getElementById(menuId).style.display = "block";
+            const target = document.getElementById(menuId);
+            if (target) target.style.display = "block";
         };
 
         function tutupSemuaSubMenu() {
-            document.getElementById("sub-foto").style.display = "none";
-            document.getElementById("sub-nama").style.display = "none";
-            document.getElementById("sub-email").style.display = "none";
-            document.getElementById("sub-pin").style.display = "none";
+            ["sub-foto", "sub-nama", "sub-email", "sub-pin"].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = "none";
+            });
         }
 
-        // 1. Simpan Foto Profil + Kompresi Otomatis
+        // --- FITUR UNGGAN FOTO PROFIL (KOMPRESI AUTOMATIS) ---
         window.bukaKamera = () => document.getElementById("inputKamera").click();
         window.bukaAlbum = () => document.getElementById("inputAlbum").click();
 
@@ -139,11 +160,10 @@
             reader.onload = (e) => {
                 const img = new Image();
                 img.onload = () => {
-                    // Buat Canvas Kompresi
                     const canvas = document.createElement("canvas");
                     const ctx = canvas.getContext("2d");
                     
-                    const maxDim = 300; // Ukuran maksimum 300px
+                    const maxDim = 300; // Resize maks 300px agar Firestore hemat & lancar
                     let width = img.width;
                     let height = img.height;
 
@@ -163,7 +183,7 @@
                     canvas.height = height;
                     ctx.drawImage(img, 0, 0, width, height);
 
-                    // Ubah Gambar ke JPEG kualitas 70%
+                    // Konversi ke format JPEG dengan kompresi 70%
                     const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
                     document.getElementById("previewFoto").src = compressedBase64;
                 };
@@ -174,25 +194,25 @@
 
         window.simpanFotoProfil = async () => {
             const user = auth.currentUser;
-            if (!user) return alert("User tidak ditemukan, silakan re-login!");
+            if (!user) return alert("Sesi login berakhir, silakan re-login!");
 
             const fotoBase64 = document.getElementById("previewFoto").src;
             if (!fotoBase64 || fotoBase64.includes("via.placeholder.com")) {
-                return alert("Pilih foto terlebih dahulu!");
+                return alert("Silakan pilih foto terlebih dahulu!");
             }
 
             try {
                 await setDoc(doc(db, "users", user.uid), { photoURL: fotoBase64 }, { merge: true });
                 document.getElementById("imgFotoProfil").src = fotoBase64;
-                alert("Foto profil berhasil diunggah dan diperbarui!");
+                alert("Foto profil berhasil diunggah!");
                 tutupSemuaSubMenu();
             } catch (err) {
-                console.error("Gagal simpan foto:", err);
+                console.error("Gagal upload foto:", err);
                 alert("Gagal mengunggah foto: " + err.message);
             }
         };
 
-        // 2. Simpan Nama
+        // --- FITUR EDIT PROFIL LAINNYA ---
         window.simpanNama = async () => {
             const user = auth.currentUser;
             const namaBaru = document.getElementById("inputNamaBaru").value.trim();
@@ -208,7 +228,6 @@
             }
         };
 
-        // 3. Simpan Email
         window.simpanEmail = async () => {
             const user = auth.currentUser;
             const emailBaru = document.getElementById("inputEmailBaru").value.trim();
@@ -219,11 +238,10 @@
                 alert("Email berhasil diperbarui!");
                 tutupSemuaSubMenu();
             } catch (err) {
-                alert("Gagal mengubah email (Mungkin perlu login ulang): " + err.message);
+                alert("Gagal mengubah email (Silakan login ulang lalu coba lagi): " + err.message);
             }
         };
 
-        // 4. Simpan PIN Keamanan
         window.simpanPin = async () => {
             const user = auth.currentUser;
             const pinBaru = document.getElementById("inputPinBaru").value.trim();
@@ -231,14 +249,14 @@
             try {
                 await setDoc(doc(db, "users", user.uid), { pin: pinBaru }, { merge: true });
                 document.getElementById("inputPinBaru").value = "";
-                alert("PIN Keamanan berhasil diperbarui!");
+                alert("PIN Keamanan berhasil disimpan!");
                 tutupSemuaSubMenu();
             } catch (err) {
-                alert("Gagal mengubah PIN: " + err.message);
+                alert("Gagal menyimpan PIN: " + err.message);
             }
         };
 
-        // Auth Functions
+        // --- AUTHENTICATION ---
         window.daftar = async () => {
             const nama = document.getElementById("namaProfil").value.trim();
             const email = document.getElementById("email").value.trim();
@@ -253,7 +271,7 @@
                 await simpanUserKeDatabase(res.user, nama);
                 alert("Pendaftaran berhasil!");
             } catch (err) {
-                alert("Gagal daftar: " + err.message);
+                alert("Gagal pendaftaran: " + err.message);
             }
         };
 
@@ -271,18 +289,20 @@
         window.loginGoogle = async () => {
             const provider = new GoogleAuthProvider();
             try {
-                await signInWithRedirect(auth, provider);
+                const result = await signInWithPopup(auth, provider);
+                await simpanUserKeDatabase(result.user);
             } catch (err) {
-                alert("Gagal Google Auth: " + err.message);
+                alert("Gagal Google Login: " + err.message);
             }
         };
 
         window.loginFacebook = async () => {
             const provider = new FacebookAuthProvider();
             try {
-                await signInWithRedirect(auth, provider);
+                const result = await signInWithPopup(auth, provider);
+                await simpanUserKeDatabase(result.user);
             } catch (err) {
-                alert("Gagal Facebook Auth: " + err.message);
+                alert("Gagal Facebook Login: " + err.message);
             }
         };
 
@@ -294,7 +314,7 @@
                 const appVerifier = window.recaptchaVerifier;
                 confirmationResultPhone = await signInWithPhoneNumber(auth, phone, appVerifier);
                 document.getElementById("otp-container").style.display = "block";
-                alert("Kode OTP dikirim melalui SMS.");
+                alert("Kode OTP SMS dikirim!");
             } catch (err) {
                 alert("Gagal kirim OTP: " + err.message);
             }
@@ -306,25 +326,26 @@
             try {
                 const res = await confirmationResultPhone.confirm(code);
                 await simpanUserKeDatabase(res.user);
-                alert("Login/Daftar No HP Berhasil!");
+                alert("Login nomor HP Berhasil!");
             } catch (err) {
                 alert("Kode OTP salah: " + err.message);
             }
         };
 
         window.keluar = async () => {
-            if (auth.currentUser) {
+            if (auth.currentUser && db) {
                 await setDoc(doc(db, "users", auth.currentUser.uid), { isOnline: false }, { merge: true });
             }
             signOut(auth);
         };
 
+        // --- SISTEM PERTEMANAN ---
         window.cariTeman = async () => {
             const keyword = document.getElementById("inputCariNama").value.trim();
             const hasilContainer = document.getElementById("hasilPencarian");
             hasilContainer.innerHTML = "";
 
-            if (!keyword) return alert("Masukkan nama yang dicari!");
+            if (!keyword) return alert("Ketik nama teman!");
 
             try {
                 const q = query(collection(db, "users"), where("nama", "==", keyword));
@@ -346,7 +367,7 @@
                     }
                 });
             } catch (err) {
-                alert("Gagal mencari: " + err.message);
+                alert("Pencarian gagal: " + err.message);
             }
         };
 
@@ -418,7 +439,7 @@
 
     <div id="recaptcha-container"></div>
 
-    <!-- Bagian Login / Daftar -->
+    <!-- Bagian Authentication -->
     <div id="auth-section">
         <h2>Daftar & Masuk Aplikasi</h2>
         
@@ -434,24 +455,12 @@
         <hr style="margin: 15px 0;">
 
         <button onclick="loginGoogle()" style="padding:10px; width:100%; margin-bottom:8px; background:#4285F4; color:white; border:none; border-radius:4px; cursor:pointer;">
-            🌐 Masuk / Daftar dengan Google
+            🌐 Masuk dengan Google
         </button>
         <button onclick="loginFacebook()" style="padding:10px; width:100%; margin-bottom:15px; background:#1877F2; color:white; border:none; border-radius:4px; cursor:pointer;">
-            📘 Masuk / Daftar dengan Facebook
+            📘 Masuk dengan Facebook
         </button>
 
         <hr style="margin: 15px 0;">
 
-        <h3>Daftar / Masuk via Nomor HP</h3>
-        <input type="tel" id="phoneInput" placeholder="Contoh: +628123456789" style="padding:10px; width:100%; box-sizing: border-box; margin-bottom:8px;"><br>
-        <button onclick="kirimOTP()" style="padding:8px 15px; cursor:pointer;">Kirim OTP SMS</button>
-
-        <div id="otp-container" style="display:none; margin-top:10px;">
-            <input type="number" id="otpInput" placeholder="Masukkan 6 Digit OTP..." style="padding:10px; width:100%; box-sizing: border-box; margin-bottom:8px;"><br>
-            <button onclick="verifikasiOTP()" style="padding:8px 15px; background:green; color:white; border:none; cursor:pointer;">Verifikasi & Masuk</button>
-        </div>
-    </div>
-
-    <!-- Bagian Utama Aplikasi -->
-    <div id="app-section" style="display:none;">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin
+        <h3>Daftar 
