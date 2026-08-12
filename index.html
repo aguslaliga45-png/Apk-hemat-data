@@ -27,7 +27,7 @@
         .dropdown-container { position: relative; width: 90%; max-width: 400px; margin-bottom: 10px; }
         .dropdown-container input { width: 100%; margin-bottom: 0; }
         .suggestions-list { position: absolute; top: 100%; left: 0; right: 0; background: #1e1e1e; border: 1px solid #444; border-radius: 0 0 5px 5px; max-height: 150px; overflow-y: auto; z-index: 99; display: none; }
-        .suggestion-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #333; color: #fff; display: flex; align-items: center; justify-content: space-between; }
+        .suggestion-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #333; color: #fff; display: flex; align-items: center; justify-content: space-between; position: relative; }
         .suggestion-item:hover { background: #2c2c2c; }
 
         /* Indikator status online/offline */
@@ -41,6 +41,13 @@
         /* Kirim gambar chat */
         .chat-img { max-width: 150px; max-height: 150px; border-radius: 8px; margin-top: 5px; display: block; }
         .file-input-label { background: #2c2c2c; border: 1px solid #444; color: white; padding: 8px 12px; border-radius: 5px; cursor: pointer; display: inline-block; font-size: 13px; margin-bottom: 5px; font-weight: bold; }
+
+        /* Badge Notifikasi Pesan Baru */
+        .notif-badge { background-color: #e74c3c; color: white; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: bold; display: inline-block; margin-left: 6px; }
+
+        /* Style Permintaan Pertemanan */
+        .request-item { display: flex; align-items: center; justify-content: space-between; background: #222; padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #333; }
+        .request-item button { padding: 5px 10px; font-size: 12px; margin-bottom: 0; background: #2ecc71; }
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
@@ -55,6 +62,9 @@
         let daftarSemuaTeman = [];
         let selectedTargetTeman = "";
         let statusListeners = {};
+        let globalChatListeners = {};
+        let unreadMessages = {};
+        let friendReqListener = null;
 
         window.tampilkanHalaman = (id) => {
             document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
@@ -138,7 +148,7 @@
                 img.src = event.target.result;
                 img.onload = async () => {
                     const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 300; // Ukuran hemat data
+                    const MAX_WIDTH = 300;
                     const MAX_HEIGHT = 300;
                     let width = img.width;
                     let height = img.height;
@@ -160,7 +170,6 @@
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
 
-                    // Kompres ke format WebP / JPEG kualitas rendah agar sangat hemat data
                     const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
 
                     const nama = localStorage.getItem("currentNama");
@@ -237,15 +246,79 @@
             }
         };
 
-        window.tambahTeman = async (nama) => {
+        window.tambahTeman = async (namaTarget) => {
             try {
                 const currentId = localStorage.getItem("currentId");
-                await set(ref(db, `friends/${currentId}/${nama}`), { status: "temenan" });
-                alert("Berhasil berteman!");
+                const currentNama = localStorage.getItem("currentNama");
+                if(currentNama.toLowerCase() === namaTarget.toLowerCase()) return alert("Tidak bisa menambahkan diri sendiri!");
+
+                let targetId = null;
+                const snap = await get(child(ref(db), `users`));
+                snap.forEach(c => {
+                    if(c.val().nama && c.val().nama.toLowerCase() === namaTarget.toLowerCase()) {
+                        targetId = c.key;
+                    }
+                });
+
+                if(!targetId) return alert("User tidak ditemukan.");
+
+                // Kirim permintaan pertemanan ke target
+                await set(ref(db, `friendRequests/${targetId}/${currentId}`), { nama: currentNama });
+                alert("Permintaan pertemanan terkirim!");
             } catch (e) {
-                alert("Gagal menambah teman.");
+                alert("Gagal mengirim permintaan teman.");
             }
         };
+
+        window.konfirmasiPertemanan = async (pengirimId, pengirimNama) => {
+            try {
+                const currentId = localStorage.getItem("currentId");
+                const currentNama = localStorage.getItem("currentNama");
+
+                // Tambahkan ke daftar teman masing-masing secara timbal balik
+                await set(ref(db, `friends/${currentId}/${pengirimNama}`), { status: "temenan" });
+                await set(ref(db, `friends/${pengirimId}/${currentNama}`), { status: "temenan" });
+
+                // Hapus dari request masuk
+                await remove(ref(db, `friendRequests/${currentId}/${pengirimId}`));
+
+                alert("Berhasil berteman!");
+                muatDaftarTeman();
+                muatPermintaanTeman();
+            } catch (e) {
+                alert("Gagal mengkonfirmasi pertemanan.");
+            }
+        };
+
+        async function muatPermintaanTeman() {
+            const reqBox = document.getElementById("requestBox");
+            const reqContainer = document.getElementById("requestContainer");
+            if(!reqBox || !reqContainer) return;
+
+            try {
+                const currentId = localStorage.getItem("currentId");
+                const snap = await get(child(ref(db), `friendRequests/${currentId}`));
+                
+                if(snap.exists()) {
+                    let html = "<h4>Permintaan Pertemanan</h4>";
+                    snap.forEach(c => {
+                        const reqId = c.key;
+                        const reqNama = c.val().nama;
+                        html += `<div class="request-item">
+                            <span><b>${reqNama}</b> ingin berteman</span>
+                            <button onclick="konfirmasiPertemanan('${reqId}', '${reqNama}')">Konfirmasi</button>
+                        </div>`;
+                    });
+                    reqBox.innerHTML = html;
+                    reqContainer.style.display = "block";
+                } else {
+                    reqBox.innerHTML = "";
+                    reqContainer.style.display = "none";
+                }
+            } catch (e) {
+                console.error("Gagal memuat permintaan teman");
+            }
+        }
 
         async function muatDaftarTeman() {
             daftarSemuaTeman = [];
@@ -272,9 +345,54 @@
                         const idTeman = nameToIdMap[namaTeman];
                         daftarSemuaTeman.push({ nama: namaTeman, id: idTeman || null });
                     });
+                    
+                    setupGlobalNotifListeners();
                 }
             } catch (e) {
                 console.error("Gagal memuat teman");
+            }
+        }
+
+        function setupGlobalNotifListeners() {
+            const currentNama = localStorage.getItem("currentNama");
+            if (!currentNama) return;
+
+            Object.values(globalChatListeners).forEach(refObj => off(refObj));
+            globalChatListeners = {};
+
+            for(let i = 0; i < daftarSemuaTeman.length; i++) {
+                const temanNama = daftarSemuaTeman[i].nama;
+                const roomKey = [currentNama, temanNama].sort().join("_");
+                const chatRef = ref(db, `chats/private/` + roomKey);
+                globalChatListeners[temanNama] = chatRef;
+
+                onChildAdded(chatRef, (d) => {
+                    const c = d.val();
+                    if(c && c.pengirim && c.pengirim !== currentNama) {
+                        if(selectedTargetTeman !== temanNama) {
+                            unreadMessages[temanNama] = (unreadMessages[temanNama] || 0) + 1;
+                            updateBadgeUI(temanNama);
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateBadgeUI(namaTeman) {
+            const listContainer = document.getElementById("suggestionsList");
+            if(listContainer && listContainer.style.display === "block") {
+                const items = listContainer.querySelectorAll('.suggestion-item');
+                items.forEach(item => {
+                    if(item.dataset.nama === namaTeman) {
+                        let badge = item.querySelector('.notif-badge');
+                        if(!badge) {
+                            badge = document.createElement('span');
+                            badge.className = 'notif-badge';
+                            item.appendChild(badge);
+                        }
+                        badge.innerText = unreadMessages[namaTeman];
+                    }
+                });
             }
         }
 
@@ -311,8 +429,9 @@
 
             let html = "";
             list.forEach(item => {
-                html += `<div class="suggestion-item" onclick="pilihTemanLangsung('${item.nama}')">
-                    <span>${item.nama}</span>
+                let badgeHtml = unreadMessages[item.nama] ? `<span class="notif-badge">${unreadMessages[item.nama]}</span>` : '';
+                html += `<div class="suggestion-item" data-nama="${item.nama}" onclick="pilihTemanLangsung('${item.nama}')">
+                    <span style="display: flex; align-items: center;">${item.nama} ${badgeHtml}</span>
                     <span id="dot-${item.id || item.nama}" class="status-dot status-offline"></span>
                 </div>`;
             });
@@ -340,6 +459,7 @@
 
         window.pilihTemanLangsung = (nama) => {
             selectedTargetTeman = nama;
+            unreadMessages[nama] = 0;
             const searchInput = document.getElementById("searchChatTeman");
             if (searchInput) searchInput.value = nama;
             const listContainer = document.getElementById("suggestionsList");
@@ -407,6 +527,14 @@
 
                 window.tampilkanHalaman('page-main');
                 muatDaftarTeman();
+                muatPermintaanTeman();
+
+                // Listen realtime untuk notifikasi permintaan pertemanan baru
+                const reqRef = ref(db, `friendRequests/${currentId}`);
+                friendReqListener = reqRef;
+                onValue(reqRef, () => {
+                    muatPermintaanTeman();
+                });
             } else { 
                 window.tampilkanHalaman('page-auth'); 
             }
@@ -434,6 +562,12 @@
                     <button onclick="keluar()" style="background: #cc0000; padding: 4px 8px; font-size: 12px; margin-bottom: 0;">Logout</button>
                 </div>
             </div>
+
+            <!-- Kontainer Notifikasi Permintaan Pertemanan -->
+            <div id="requestContainer" class="section-box" style="display: none;">
+                <div id="requestBox"></div>
+            </div>
+
             <div id="chat-teman">
                 <h3>Teman</h3>
                 <div class="dropdown-container">
