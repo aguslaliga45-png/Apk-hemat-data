@@ -13,6 +13,7 @@
             onAuthStateChanged, 
             signOut, 
             updateProfile,
+            updateEmail,
             GoogleAuthProvider,
             FacebookAuthProvider,
             signInWithRedirect,
@@ -20,7 +21,17 @@
             RecaptchaVerifier,
             signInWithPhoneNumber
         } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
-        import { getFirestore, collection, setDoc, doc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+        import { 
+            getFirestore, 
+            collection, 
+            setDoc, 
+            doc, 
+            getDoc,
+            getDocs, 
+            query, 
+            where, 
+            onSnapshot 
+        } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 
         // Konfigurasi Firebase
         const firebaseConfig = {
@@ -44,12 +55,10 @@
                 'size': 'invisible'
             }, auth);
 
-            // Menangani hasil login redirect Google/Facebook saat halaman dimuat ulang
             try {
                 const result = await getRedirectResult(auth);
                 if (result) {
-                    const user = result.user;
-                    await simpanUserKeDatabase(user);
+                    await simpanUserKeDatabase(result.user);
                 }
             } catch (err) {
                 console.error("Redirect Error:", err);
@@ -63,7 +72,9 @@
                 nama: namaTampil,
                 email: user.email || "",
                 phone: user.phoneNumber || "",
-                uid: user.uid
+                uid: user.uid,
+                isOnline: true,
+                photoURL: user.photoURL || ""
             }, { merge: true });
         }
 
@@ -73,18 +84,87 @@
                 document.getElementById("auth-section").style.display = "none";
                 document.getElementById("app-section").style.display = "block";
                 
-                const namaTampil = user.displayName || user.phoneNumber || user.email;
-                document.getElementById("user-info").innerText = "Login sebagai: " + namaTampil;
-                
                 await simpanUserKeDatabase(user);
-                muatDaftarTemanSaya();
+                muatProfilSaya(user);
+                pantauDaftarTemanSaya();
+
+                // Set status offline saat halaman ditutup
+                window.addEventListener("beforeunload", () => {
+                    setDoc(doc(db, "users", user.uid), { isOnline: false }, { merge: true });
+                });
             } else {
                 document.getElementById("auth-section").style.display = "block";
                 document.getElementById("app-section").style.display = "none";
             }
         });
 
-        // 1. Daftar Akun Email Baru
+        // Load & Tampilkan Profil
+        async function muatProfilSaya(user) {
+            const userDoc = await getDoc(doc(db, "users", user.uid));
+            const data = userDoc.exists() ? userDoc.data() : {};
+
+            const namaTampil = data.nama || user.displayName || user.email;
+            document.getElementById("user-info").innerText = "Login sebagai: " + namaTampil;
+            document.getElementById("settingNama").value = namaTampil;
+            document.getElementById("settingEmail").value = user.email || "";
+            document.getElementById("settingPin").value = data.pin || "";
+
+            const fotoURL = data.photoURL || "https://via.placeholder.com/100";
+            document.getElementById("imgFotoProfil").src = fotoURL;
+            document.getElementById("previewFoto").src = fotoURL;
+        }
+
+        // Toggle Tampilan Menu Settings
+        window.toggleSettings = () => {
+            const el = document.getElementById("settings-section");
+            el.style.display = (el.style.display === "none") ? "block" : "none";
+        };
+
+        // Konversi Foto ke Base64 (Camera / Album)
+        window.prosesFoto = (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    document.getElementById("previewFoto").src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        };
+
+        // Simpan Pengaturan
+        window.simpanSettings = async () => {
+            const user = auth.currentUser;
+            const namaBaru = document.getElementById("settingNama").value.trim();
+            const emailBaru = document.getElementById("settingEmail").value.trim();
+            const pinBaru = document.getElementById("settingPin").value.trim();
+            const fotoBase64 = document.getElementById("previewFoto").src;
+
+            try {
+                if (namaBaru) {
+                    await updateProfile(user, { displayName: namaBaru });
+                }
+                if (emailBaru && emailBaru !== user.email) {
+                    await updateEmail(user, emailBaru);
+                }
+
+                await setDoc(doc(db, "users", user.uid), {
+                    nama: namaBaru,
+                    email: emailBaru,
+                    pin: pinBaru,
+                    photoURL: fotoBase64
+                }, { merge: true });
+
+                document.getElementById("imgFotoProfil").src = fotoBase64;
+                document.getElementById("user-info").innerText = "Login sebagai: " + namaBaru;
+                alert("Pengaturan berhasil disimpan!");
+                toggleSettings();
+            } catch (err) {
+                alert("Gagal menyimpan pengaturan: " + err.message);
+            }
+        };
+
+        // 1. Daftar Akun Email
         window.daftar = async () => {
             const nama = document.getElementById("namaProfil").value.trim();
             const email = document.getElementById("email").value.trim();
@@ -115,7 +195,7 @@
             }
         };
 
-        // 3. Daftar / Login Google (Redirect Mode)
+        // 3. Google Auth
         window.loginGoogle = async () => {
             const provider = new GoogleAuthProvider();
             try {
@@ -125,7 +205,7 @@
             }
         };
 
-        // 4. Daftar / Login Facebook (Redirect Mode)
+        // 4. Facebook Auth
         window.loginFacebook = async () => {
             const provider = new FacebookAuthProvider();
             try {
@@ -135,7 +215,7 @@
             }
         };
 
-        // 5. Kirim OTP SMS No. HP
+        // 5. Kirim OTP SMS
         window.kirimOTP = async () => {
             const phone = document.getElementById("phoneInput").value.trim();
             if (!phone.startsWith("+")) return alert("Sertakan kode negara! Contoh: +628123456789");
@@ -164,7 +244,12 @@
         };
 
         // Logout
-        window.keluar = () => signOut(auth);
+        window.keluar = async () => {
+            if (auth.currentUser) {
+                await setDoc(doc(db, "users", auth.currentUser.uid), { isOnline: false }, { merge: true });
+            }
+            signOut(auth);
+        };
 
         // Cari Teman
         window.cariTeman = async () => {
@@ -208,32 +293,55 @@
                     addedAt: new Date()
                 });
                 alert(`Berhasil menambahkan ${friendNama}!`);
-                muatDaftarTemanSaya();
             } catch (err) {
                 alert("Gagal menambahkan teman: " + err.message);
             }
         };
 
-        // Muat Teman Saya
-        async function muatDaftarTemanSaya() {
-            try {
-                const myUid = auth.currentUser.uid;
-                const querySnapshot = await getDocs(collection(db, "users", myUid, "teman"));
+        // Pantau Teman Saya (Realtime + Status Online)
+        function pantauDaftarTemanSaya() {
+            const myUid = auth.currentUser.uid;
+            onSnapshot(collection(db, "users", myUid, "teman"), (snapshot) => {
                 const listTeman = document.getElementById("listTeman");
                 listTeman.innerHTML = "";
 
-                if(querySnapshot.empty) {
+                if (snapshot.empty) {
                     listTeman.innerHTML = "<p><i>Belum ada teman.</i></p>";
                     return;
                 }
 
-                querySnapshot.forEach((d) => {
+                snapshot.forEach((d) => {
                     const teman = d.data();
-                    listTeman.innerHTML += `<p>👤 <b>${teman.nama}</b> <button onclick="mulaiCall('${teman.nama}')">📞 Video Call</button></p>`;
+                    // Pantau status online masing-masing teman secara realtime
+                    onSnapshot(doc(db, "users", teman.uid), (docUser) => {
+                        const dataUser = docUser.exists() ? docUser.data() : {};
+                        const statusOnline = dataUser.isOnline ? "🟢 <span style='color:green;'>Online</span>" : "🔴 <span style='color:gray;'>Offline</span>";
+                        const fotoTeman = dataUser.photoURL || "https://via.placeholder.com/40";
+
+                        const itemID = "teman-" + teman.uid;
+                        const existingItem = document.getElementById(itemID);
+                        
+                        const htmlContent = `
+                            <div id="${itemID}" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; padding:5px; border-bottom:1px solid #eee;">
+                                <div style="display:flex; align-items:center; gap:10px;">
+                                    <img src="${fotoTeman}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
+                                    <div>
+                                        <b>${dataUser.nama || teman.nama}</b><br>
+                                        <small>${statusOnline}</small>
+                                    </div>
+                                </div>
+                                <button onclick="mulaiCall('${dataUser.nama || teman.nama}')" style="padding:5px 10px; cursor:pointer;">📞 Video Call</button>
+                            </div>
+                        `;
+
+                        if (existingItem) {
+                            existingItem.outerHTML = htmlContent;
+                        } else {
+                            listTeman.innerHTML += htmlContent;
+                        }
+                    });
                 });
-            } catch (err) {
-                console.error(err);
-            }
+            });
         }
 
         // Video Call
@@ -251,7 +359,6 @@
     <div id="auth-section">
         <h2>Daftar & Masuk Aplikasi</h2>
         
-        <!-- Input Email & Password -->
         <input type="text" id="namaProfil" placeholder="Nama Profil..." style="padding:10px; margin-bottom:8px; width:100%; box-sizing: border-box;"><br>
         <input type="email" id="email" placeholder="Email..." style="padding:10px; margin-bottom:8px; width:100%; box-sizing: border-box;"><br>
         <input type="password" id="password" placeholder="Password (min 6 karakter)..." style="padding:10px; margin-bottom:12px; width:100%; box-sizing: border-box;"><br>
@@ -263,7 +370,6 @@
 
         <hr style="margin: 15px 0;">
 
-        <!-- Otentikasi Sosial Media -->
         <button onclick="loginGoogle()" style="padding:10px; width:100%; margin-bottom:8px; background:#4285F4; color:white; border:none; border-radius:4px; cursor:pointer;">
             🌐 Masuk / Daftar dengan Google
         </button>
@@ -273,7 +379,6 @@
 
         <hr style="margin: 15px 0;">
 
-        <!-- Otentikasi Nomor HP -->
         <h3>Daftar / Masuk via Nomor HP</h3>
         <input type="tel" id="phoneInput" placeholder="Contoh: +628123456789" style="padding:10px; width:100%; box-sizing: border-box; margin-bottom:8px;"><br>
         <button onclick="kirimOTP()" style="padding:8px 15px; cursor:pointer;">Kirim OTP SMS</button>
@@ -286,19 +391,46 @@
 
     <!-- Bagian Utama Aplikasi -->
     <div id="app-section" style="display:none;">
-        <span id="user-info" style="font-weight:bold;"></span> 
-        <button onclick="keluar()" style="float:right; background:red; color:white; border:none; padding:6px 12px; cursor: pointer;">Logout</button>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <img id="imgFotoProfil" src="https://via.placeholder.com/100" style="width:45px; height:45px; border-radius:50%; object-fit:cover;">
+                <span id="user-info" style="font-weight:bold;"></span>
+            </div>
+            <div>
+                <button onclick="toggleSettings()" style="padding:6px 10px; cursor:pointer;">⚙️ Pengaturan</button>
+                <button onclick="keluar()" style="background:red; color:white; border:none; padding:6px 12px; cursor: pointer;">Logout</button>
+            </div>
+        </div>
+
+        <!-- Panel Pengaturan (Settings) -->
+        <div id="settings-section" style="display:none; background:#f4f4f4; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
+            <h3 style="margin-top:0;">⚙️ Pengaturan Profil</h3>
+            
+            <div style="text-align:center; margin-bottom:10px;">
+                <img id="previewFoto" src="https://via.placeholder.com/100" style="width:80px; height:80px; border-radius:50%; object-fit:cover; display:block; margin:0 auto 10px;"><br>
+                <label style="background:#007bff; color:white; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">
+                    📷 Kamera
+                    <input type="file" accept="image/*" capture="camera" onchange="prosesFoto(event)" style="display:none;">
+                </label>
+                <label style="background:#28a745; color:white; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px; margin-left:5px;">
+                    🖼️ Album
+                    <input type="file" accept="image/*" onchange="prosesFoto(event)" style="display:none;">
+                </label>
+            </div>
+
+            <label style="font-size:12px; font-weight:bold;">Nama Profil:</label>
+            <input type="text" id="settingNama" placeholder="Ubah nama..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:8px;"><br>
+
+            <label style="font-size:12px; font-weight:bold;">Email:</label>
+            <input type="email" id="settingEmail" placeholder="Ubah email..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:8px;"><br>
+
+            <label style="font-size:12px; font-weight:bold;">PIN Keamanan:</label>
+            <input type="password" id="settingPin" maxlength="6" placeholder="Ubah/Buat PIN 6 Digit..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:12px;"><br>
+
+            <button onclick="simpanSettings()" style="padding:8px 15px; background:green; color:white; border:none; cursor:pointer; width:100%;">💾 Simpan Perubahan</button>
+        </div>
+
         <hr style="margin-top: 15px;">
         
         <h3>Cari & Tambah Teman</h3>
-        <input type="text" id="inputCariNama" placeholder="Ketik nama profil teman..." style="padding: 8px; width: 60%;">
-        <button onclick="cariTeman()" style="padding: 8px 12px; cursor: pointer;">🔍 Cari</button>
-        <div id="hasilPencarian" style="margin-top: 10px; background: #f9f9f9; border: 1px solid #ddd; padding: 10px;"></div>
-
-        <hr>
-        <h3>Daftar Teman Saya</h3>
-        <div id="listTeman"></div>
-    </div>
-
-</body>
-</html>
+ 
