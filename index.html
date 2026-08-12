@@ -8,464 +8,255 @@
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 15px; margin: 0; }
         .hidden { display: none; }
-        
-        .setting-icon { 
-            display: inline-block;
-            cursor: pointer; 
-            font-size: 14px; 
-            background: #2c2c2c; 
-            border: 1px solid #444;
-            padding: 5px 10px; 
-            border-radius: 6px; 
-            margin-bottom: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        }
-
-        input[type="text"], input[type="file"], select { 
-            padding: 10px; 
-            background: #2c2c2c; 
-            border: 1px solid #444; 
-            color: white; 
-            border-radius: 5px; 
-            width: 90%; 
-            max-width: 400px;
-            margin-bottom: 10px; 
-            display: block;
-        }
-
-        button { 
-            padding: 10px 15px; 
-            cursor: pointer; 
-            border: none; 
-            border-radius: 5px; 
-            background: #0084ff; 
-            color: white; 
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-
+        .setting-icon { display: inline-block; cursor: pointer; font-size: 14px; background: #2c2c2c; border: 1px solid #444; padding: 5px 10px; border-radius: 6px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        input, select { padding: 10px; background: #2c2c2c; border: 1px solid #444; color: white; border-radius: 5px; width: 90%; max-width: 400px; margin-bottom: 10px; display: block; }
+        button { padding: 10px 15px; cursor: pointer; border: none; border-radius: 5px; background: #0084ff; color: white; font-weight: bold; margin-bottom: 5px; }
         .active-tab { background: #0066ff !important; }
-
-        .chat-box { 
-            height: 280px; 
-            overflow-y: auto; 
-            border: 1px solid #333; 
-            padding: 10px; 
-            background: #1e1e1e; 
-            border-radius: 5px; 
-            margin: 10px 0; 
-            display: flex;
-            flex-direction: column;
-        }
-
-        .section-box { 
-            border: 1px solid #333; 
-            padding: 10px; 
-            border-radius: 8px; 
-            margin-bottom: 15px; 
-            background: #181818;
-        }
-
-        .profile-pic { 
-            width: 30px; 
-            height: 30px; 
-            border-radius: 50%; 
-            object-fit: cover; 
-            margin-right: 8px; 
-            vertical-align: middle; 
-        }
-
-        .chat-row {
-            display: flex;
-            align-items: flex-end;
-            margin-bottom: 8px;
-            max-width: 80%;
-        }
-        .chat-row.incoming {
-            align-self: flex-start;
-        }
-        .chat-row.outgoing {
-            align-self: flex-end;
-            flex-direction: row-reverse;
-        }
-        .bubble {
-            padding: 10px 14px;
-            border-radius: 18px;
-            font-size: 14px;
-            word-break: break-word;
-            line-height: 1.4;
-        }
-        .incoming .bubble {
-            background: #303030;
-            color: #fff;
-            border-bottom-left-radius: 4px;
-        }
-        .outgoing .bubble {
-            background: #0084ff;
-            color: #fff;
-            border-bottom-right-radius: 4px;
-        }
-
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding-top: 10px;
-        }
+        .chat-box { height: 280px; overflow-y: auto; border: 1px solid #333; padding: 10px; background: #1e1e1e; border-radius: 5px; margin: 10px 0; display: flex; flex-direction: column; }
+        .section-box { border: 1px solid #333; padding: 10px; border-radius: 8px; margin-bottom: 15px; background: #181818; }
+        .chat-row { display: flex; align-items: flex-end; margin-bottom: 8px; max-width: 80%; }
+        .incoming { align-self: flex-start; }
+        .outgoing { align-self: flex-end; flex-direction: row-reverse; }
+        .bubble { padding: 10px 14px; border-radius: 18px; font-size: 14px; word-break: break-word; background: #303030; color: #fff; }
+        .outgoing .bubble { background: #0084ff; }
+        .container { max-width: 600px; margin: 0 auto; padding-top: 10px; }
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
-        import { getDatabase, ref, set, get, child, push, onChildAdded, update, remove, off } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
+        import { getDatabase, ref, set, get, child, push, onChildAdded, remove, off } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDrDQ5buiL2or_YYdzEaRT6Cajxv7x6zhQ",
-            authDomain: "aplikasi-hemat-data.firebaseapp.com",
-            databaseURL: "https://aplikasi-hemat-data-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "aplikasi-hemat-data",
-            storageBucket: "aplikasi-hemat-data.firebasestorage.app",
-            messagingSenderId: "57465772327",
-            appId: "1:57465772327:web:df1fcdb0b0ad68d2307102"
+            databaseURL: "https://aplikasi-hemat-data-default-rtdb.asia-southeast1.firebasedatabase.app"
         };
-
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
+        const db = getDatabase(initializeApp(firebaseConfig));
         let currentPrivateListener = null;
-
-        const convertToBase64 = (file) => new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = (error) => reject(error);
-            reader.readAsDataURL(file);
-        });
 
         window.tampilkanHalaman = (id) => {
             document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
             const target = document.getElementById(id);
-            if(target) target.classList.remove('hidden');
+            if (target) target.classList.remove('hidden');
         };
 
         window.masukAkun = async () => {
-            const namaInputEl = document.getElementById("namaInput");
-            if(!namaInputEl) return;
-            const nama = namaInputEl.value.trim();
-            if(!nama) return alert("Masukkan nama terlebih dahulu!");
-
+            const nama = document.getElementById("namaInput").value.trim();
+            if(!nama) return alert("Masukkan nama Anda!");
             try {
-                const snapshot = await get(child(ref(db), `users`));
-                let foundKey = null;
-                let foundData = null;
-                snapshot.forEach(c => { 
+                const snap = await get(child(ref(db), `users`));
+                let ditemukan = false;
+                snap.forEach(c => {
                     if(c.val().nama && c.val().nama.toLowerCase() === nama.toLowerCase()) {
-                        foundKey = c.key;
-                        foundData = c.val();
+                        localStorage.setItem("currentNama", c.val().nama);
+                        localStorage.setItem("currentId", c.key);
+                        ditemukan = true;
+                        location.reload();
                     }
                 });
-
-                if(foundData) { 
-                    localStorage.setItem("currentNama", foundData.nama); 
-                    localStorage.setItem("currentId", foundKey); 
-                    localStorage.setItem("currentFoto", foundData.fotoUrl || "https://ui-avatars.com/api/?name=" + encodeURIComponent(foundData.nama));
-                    location.reload(); 
-                } else { 
-                    alert("Nama tidak terdaftar! Silakan Daftar terlebih dahulu."); 
-                }
+                if(!ditemukan) alert("Nama tidak ditemukan, silakan Daftar terlebih dahulu!");
             } catch (e) {
-                alert("Koneksi gagal, periksa internet Anda.");
+                alert("Terjadi kesalahan koneksi.");
             }
         };
 
         window.daftarAkun = async () => {
-            const namaInputEl = document.getElementById("namaInput");
-            const fileInput = document.getElementById("fotoFileDaftar");
-            if(!namaInputEl) return;
-            const nama = namaInputEl.value.trim();
-            if(!nama) return alert("Masukkan nama terlebih dahulu!");
-
-            let fotoUrl = "https://ui-avatars.com/api/?name=" + encodeURIComponent(nama);
-            if (fileInput && fileInput.files && fileInput.files[0]) {
-                fotoUrl = await convertToBase64(fileInput.files[0]);
+            const nama = document.getElementById("namaInput").value.trim();
+            if(!nama) return alert("Masukkan nama!");
+            try {
+                await set(ref(db, 'users/' + Date.now()), { nama });
+                alert("Berhasil daftar! Silakan klik Masuk.");
+            } catch (e) {
+                alert("Gagal mendaftarkan akun.");
             }
-
-            const snapshot = await get(child(ref(db), `users`));
-            let sudahAda = false;
-            snapshot.forEach(c => {
-                if(c.val().nama && c.val().nama.toLowerCase() === nama.toLowerCase()) sudahAda = true;
-            });
-            if(sudahAda) return alert("Nama sudah digunakan orang lain!");
-
-            const newUserId = 'user_' + Date.now();
-            await set(ref(db, 'users/' + newUserId), { 
-                nama: nama,
-                fotoUrl: fotoUrl 
-            });
-            alert("Berhasil daftar! Silakan klik tombol Masuk.");
         };
 
-        window.simpanFotoBaru = async () => {
-            const fileInput = document.getElementById("fotoFileUpdate");
-            const currentId = localStorage.getItem("currentId");
-
-            if (!fileInput || !fileInput.files || !fileInput.files[0]) return alert("Pilih foto dari galeri terlebih dahulu!");
-            if (!currentId) return alert("Sesi habis, silakan login ulang.");
-
-            try {
-                const base64Image = await convertToBase64(fileInput.files[0]);
-                await update(ref(db, `users/${currentId}`), { fotoUrl: base64Image });
-                localStorage.setItem("currentFoto", base64Image);
-                alert("Foto profil berhasil diperbarui!");
-                tampilkanHalaman('page-main');
-            } catch (error) {
-                alert("Gagal memperbarui foto: " + error.message);
+        window.hapusAkunSteffy = () => {
+            const konfirmasi1 = confirm("PERINGATAN: Menghapus akun akan menghilangkan semua data Anda secara permanen. Lanjutkan?");
+            if (konfirmasi1) {
+                const konfirmasi2 = confirm("YAKIN? Ini tidak bisa dibatalkan.");
+                if (konfirmasi2) {
+                    window.hapusAkunPermanen();
+                }
             }
         };
 
         window.hapusAkunPermanen = async () => {
-            const currentId = localStorage.getItem("currentId");
-            if (!currentId) return alert("Sesi habis, silakan login ulang.");
-            
-            if (!confirm("Apakah Anda yakin ingin menghapus akun ini secara permanen?")) return;
-
             try {
-                await remove(ref(db, `users/${currentId}`));
-                await remove(ref(db, `friends/${currentId}`));
-                alert("Akun berhasil dihapus.");
-                localStorage.clear();
+                const currentId = localStorage.getItem("currentId");
+                if (currentId) {
+                    await remove(ref(db, `users/${currentId}`));
+                }
+                localStorage.clear(); 
                 location.reload();
-            } catch (error) {
-                alert("Gagal menghapus akun: " + error.message);
+            } catch (e) {
+                alert("Gagal menghapus akun.");
             }
+        };
+
+        window.keluar = () => {
+            localStorage.clear();
+            location.reload();
         };
 
         window.tampilTab = (tab) => {
-            const storySec = document.getElementById("story-section");
-            const globalSec = document.getElementById("chat-global");
-            const temanSec = document.getElementById("chat-teman");
-            
-            if(storySec) storySec.style.display = (tab === 'story') ? 'block' : 'none';
-            if(globalSec) globalSec.style.display = (tab === 'global') ? 'block' : 'none';
-            if(temanSec) temanSec.style.display = (tab === 'teman') ? 'block' : 'none';
-            
-            const btnS = document.getElementById("btn-s");
-            const btnG = document.getElementById("btn-g");
-            const btnT = document.getElementById("btn-t");
-            
-            if(btnS) btnS.className = (tab === 'story') ? 'active-tab' : '';
-            if(btnG) btnG.className = (tab === 'global') ? 'active-tab' : '';
-            if(btnT) btnT.className = (tab === 'teman') ? 'active-tab' : '';
-            
-            if(tab === 'teman') muatDaftarTemanChat();
-        };
-
-        window.unggahStory = async () => {
-            const currentNama = localStorage.getItem("currentNama");
-            const currentFoto = localStorage.getItem("currentFoto");
-            const fileInput = document.getElementById("storyFile");
-            const captionInput = document.getElementById("storyCaption");
-
-            if (!fileInput || !fileInput.files || !fileInput.files[0]) return alert("Pilih media untuk story!");
-            
-            try {
-                const mediaUrl = await convertToBase64(fileInput.files[0]);
-                await push(ref(db, 'stories'), {
-                    pengirim: currentNama,
-                    fotoProfil: currentFoto,
-                    mediaUrl: mediaUrl,
-                    caption: captionInput ? captionInput.value.trim() : "",
-                    waktu: Date.now()
-                });
-                fileInput.value = "";
-                if(captionInput) captionInput.value = "";
-                alert("Story berhasil diunggah!");
-            } catch (error) {
-                alert("Gagal mengunggah story: " + error.message);
-            }
+            const g = document.getElementById("chat-global");
+            const t = document.getElementById("chat-teman");
+            if(g) g.style.display = (tab === 'global') ? 'block' : 'none';
+            if(t) t.style.display = (tab === 'teman') ? 'block' : 'none';
+            if(tab === 'teman') muatDaftarTeman();
         };
 
         window.kirimPesan = async (jenis) => {
-            const currentNama = localStorage.getItem("currentNama");
-            const currentFoto = localStorage.getItem("currentFoto");
+            const nama = localStorage.getItem("currentNama");
+            const inputElem = document.getElementById(jenis === 'global' ? "pesanG" : "pesanT");
+            if(!inputElem) return;
+            const teks = inputElem.value.trim();
+            if(!teks) return;
 
+            let path = '';
             if (jenis === 'global') {
-                const input = document.getElementById("pesanG");
-                if(!input || !input.value.trim()) return;
-                await push(ref(db, 'chats/global'), { pengirim: currentNama, fotoUrl: currentFoto, teks: input.value });
-                input.value = "";
+                path = 'chats/global';
             } else {
-                const targetTemanEl = document.getElementById("selectTeman");
-                const input = document.getElementById("pesanT");
-                if(!targetTemanEl || !targetTemanEl.value) return alert("Pilih teman terlebih dahulu!");
-                if(!input || !input.value.trim()) return;
+                const temanSelect = document.getElementById("selectTeman");
+                if(!temanSelect || !temanSelect.value) return alert("Pilih teman terlebih dahulu!");
+                path = 'chats/private/' + [nama, temanSelect.value].sort().join("_");
+            }
 
-                const targetTeman = targetTemanEl.value;
-                const roomKey = [currentNama, targetTeman].sort().join("_");
-                await push(ref(db, 'chats/private/' + roomKey), { pengirim: currentNama, fotoUrl: currentFoto, teks: input.value });
-                input.value = "";
+            try {
+                await push(ref(db, path), { pengirim: nama, teks: teks });
+                inputElem.value = "";
+            } catch (e) {
+                alert("Gagal mengirim pesan.");
             }
         };
 
         window.cariTeman = async () => {
-            const cariInputEl = document.getElementById("cariInput");
-            if(!cariInputEl) return;
-            const keyword = cariInputEl.value.toLowerCase();
-            const currentNama = localStorage.getItem("currentNama");
-            const snapshot = await get(child(ref(db), `users`));
-            let html = "<h4>Hasil Pencarian:</h4>";
-            let ada = false;
+            const keywordInput = document.getElementById("cariInput");
+            const hasilCari = document.getElementById("hasilCari");
+            if(!keywordInput || !hasilCari) return;
+            const keyword = keywordInput.value.toLowerCase().trim();
+            if(!keyword) return;
 
-            snapshot.forEach(c => {
-                const userData = c.val();
-                if(userData.nama && userData.nama.toLowerCase().includes(keyword) && userData.nama !== currentNama) {
-                    ada = true;
-                    const foto = userData.fotoUrl || "https://ui-avatars.com/api/?name=" + encodeURIComponent(userData.nama);
-                    html += `<p><img src="${foto}" class="profile-pic"><b>${userData.nama}</b> <button onclick="tambahTeman('${userData.nama}')" style="padding: 5px 10px; font-size: 12px; margin-left: 10px;">Tambah Teman</button></p>`;
-                }
-            });
-            const hasilCariEl = document.getElementById("hasilCari");
-            if(hasilCariEl) hasilCariEl.innerHTML = ada ? html : "<p>Tidak ditemukan.</p>";
+            try {
+                const snap = await get(child(ref(db), `users`));
+                let html = "";
+                snap.forEach(c => {
+                    const u = c.val();
+                    if(u.nama && u.nama.toLowerCase().includes(keyword) && u.nama !== localStorage.getItem("currentNama")) {
+                        html += `<p><b>${u.nama}</b> <button onclick="tambahTeman('${u.nama}')">Tambah</button></p>`;
+                    }
+                });
+                hasilCari.innerHTML = html || "<p>Tidak ditemukan.</p>";
+            } catch (e) {
+                alert("Gagal mencari teman.");
+            }
         };
 
-        window.tambahTeman = async (namaTarget) => {
-            const currentId = localStorage.getItem("currentId");
-            await set(ref(db, `friends/${currentId}/${namaTarget}`), { status: "temenan" });
-            alert("Berhasil berteman dengan " + namaTarget + "!");
-            muatDaftarTemanChat();
+        window.tambahTeman = async (nama) => {
+            try {
+                const currentId = localStorage.getItem("currentId");
+                await set(ref(db, `friends/${currentId}/${nama}`), { status: "temenan" });
+                alert("Berhasil berteman!");
+            } catch (e) {
+                alert("Gagal menambah teman.");
+            }
         };
 
-        async function muatDaftarTemanChat() {
-            const currentId = localStorage.getItem("currentId");
+        async function muatDaftarTeman() {
             const select = document.getElementById("selectTeman");
             if(!select) return;
-            select.innerHTML = '<option value="">-- Pilih Teman untuk Chat --</option>';
-
-            const snapshot = await get(child(ref(db), `friends/${currentId}`));
-            if(snapshot.exists()) {
-                snapshot.forEach(c => {
-                    const namaTeman = c.key;
-                    select.innerHTML += `<option value="${namaTeman}">${namaTeman}</option>`;
-                });
+            select.innerHTML = '<option value="">-- Pilih Teman --</option>';
+            try {
+                const currentId = localStorage.getItem("currentId");
+                const snap = await get(child(ref(db), `friends/${currentId}`));
+                if(snap.exists()) {
+                    snap.forEach(c => {
+                        select.innerHTML += `<option value="${c.key}">${c.key}</option>`;
+                    });
+                }
+            } catch (e) {
+                console.error("Gagal memuat teman");
             }
         }
 
         window.pilihTemanChat = async () => {
-            const targetTeman = document.getElementById("selectTeman").value;
-            const currentNama = localStorage.getItem("currentNama");
-            const chatBoxTeman = document.getElementById("chatBox-teman");
-            const headerChat = document.getElementById("header-chat-teman");
-            if(!chatBoxTeman) return;
-            chatBoxTeman.innerHTML = "";
+            const target = document.getElementById("selectTeman").value;
+            const box = document.getElementById("chatBox-teman");
+            if(!box) return;
+            box.innerHTML = "";
+            if(currentPrivateListener) off(currentPrivateListener);
+            if(!target) return;
 
-            if (currentPrivateListener) {
-                off(currentPrivateListener);
-                currentPrivateListener = null;
-            }
-
-            if(!targetTeman) {
-                if(headerChat) headerChat.innerHTML = "";
-                return;
-            }
-
-            let fotoTeman = "https://ui-avatars.com/api/?name=" + encodeURIComponent(targetTeman);
-            const snapshot = await get(child(ref(db), `users`));
-            snapshot.forEach(c => {
-                if(c.val().nama && c.val().nama.toLowerCase() === targetTeman.toLowerCase()) {
-                    if(c.val().fotoUrl) fotoTeman = c.val().fotoUrl;
+            const roomKey = [localStorage.getItem("currentNama"), target].sort().join("_");
+            currentPrivateListener = ref(db, `chats/private/` + roomKey);
+            onChildAdded(currentPrivateListener, (d) => {
+                const c = d.val();
+                if(c && c.pengirim && c.teks) {
+                    const isMe = c.pengirim === localStorage.getItem("currentNama");
+                    box.innerHTML += `<div class="chat-row ${isMe ? 'outgoing' : 'incoming'}"><div class="bubble"><b>${c.pengirim}:</b><br>${c.teks}</div></div>`;
+                    box.scrollTop = box.scrollHeight;
                 }
             });
-
-            if(headerChat) {
-                headerChat.innerHTML = `
-                    <div style="display: flex; align-items: center; background: #1a1a1a; padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #333;">
-                        <img src="${fotoTeman}" class="profile-pic" style="width: 36px; height: 36px;">
-                        <b style="font-size: 15px; color: #fff;">${targetTeman}</b>
-                    </div>
-                `;
-            }
-
-            const roomKey = [currentNama, targetTeman].sort().join("_");
-            const privateChatRef = ref(db, `chats/private/` + roomKey);
-            currentPrivateListener = privateChatRef;
-
-            onChildAdded(privateChatRef, (data) => {
-                let c = data.val();
-                if (!c) return;
-                const foto = c.fotoUrl || "https://ui-avatars.com/api/?name=" + encodeURIComponent(c.pengirim);
-                const isMe = c.pengirim === currentNama;
-                const rowClass = isMe ? "chat-row outgoing" : "chat-row incoming";
-                let avatarHtml = !isMe ? `<img src="${foto}" class="profile-pic" style="margin-right: 6px; margin-bottom: 2px;">` : "";
-                
-                chatBoxTeman.innerHTML += `
-                    <div class="${rowClass}">
-                        ${avatarHtml}
-                        <div class="bubble">${c.teks}</div>
-                    </div>
-                `;
-                chatBoxTeman.scrollTop = chatBoxTeman.scrollHeight;
-            });
-        };
-
-        window.keluar = () => { 
-            localStorage.clear(); 
-            location.reload(); 
         };
 
         window.onload = () => {
-            if (localStorage.getItem("currentNama")) {
-                tampilkanHalaman('page-main');
-                const btnSetting = document.getElementById("btn-setting");
-                if(btnSetting) btnSetting.style.display = "inline-block";
-                
-                const currentNama = localStorage.getItem("currentNama");
-
-                onChildAdded(ref(db, 'stories'), (data) => {
-                    let s = data.val();
-                    if (!s) return;
-                    let feedBox = document.getElementById("storyFeed");
-                    if(!feedBox) return;
-                    let foto = s.fotoProfil || "https://ui-avatars.com/api/?name=" + encodeURIComponent(s.pengirim);
-                    
-                    let card = document.createElement("div");
-                    card.style.cssText = "background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 10px; margin-bottom: 12px;";
-                    card.innerHTML = `
-                        <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                            <img src="${foto}" class="profile-pic">
-                            <b style="font-size: 14px; color: #fff;">${s.pengirim}</b>
-                        </div>
-                        <div style="margin-bottom: 8px;">
-                            <img src="${s.mediaUrl}" style="width: 100%; max-height: 350px; object-fit: contain; border-radius: 6px; background: #000;">
-                        </div>
-                        <p style="font-size: 14px; margin: 0; color: #ddd;">${s.caption || ""}</p>
-                    `;
-                    feedBox.prepend(card);
+            if(localStorage.getItem("currentNama")) {
+                window.tampilkanHalaman('page-main');
+                onChildAdded(ref(db, 'chats/global'), (d) => {
+                    const c = d.val();
+                    const globalBox = document.getElementById("chatBox-global");
+                    if(c && c.pengirim && c.teks && globalBox) {
+                        const isMe = c.pengirim === localStorage.getItem("currentNama");
+                        globalBox.innerHTML += `<div class="chat-row ${isMe ? 'outgoing' : 'incoming'}"><div class="bubble"><b>${c.pengirim}:</b><br>${c.teks}</div></div>`;
+                        globalBox.scrollTop = globalBox.scrollHeight;
+                    }
                 });
-
-                onChildAdded(ref(db, 'chats/global'), (data) => {
-                    let c = data.val();
-                    if (!c) return;
-                    let foto = c.fotoUrl || "https://ui-avatars.com/api/?name=" + encodeURIComponent(c.pengirim);
-                    let box = document.getElementById("chatBox-global");
-                    if(!box) return;
-                    
-                    const isMe = c.pengirim === currentNama;
-                    const rowClass = isMe ? "chat-row outgoing" : "chat-row incoming";
-                    let avatarHtml = !isMe ? `<img src="${foto}" class="profile-pic" style="margin-right: 6px; margin-bottom: 2px;">` : "";
-
-                    box.innerHTML += `
-                        <div class="${rowClass}">
-                            ${avatarHtml}
-                            <div class="bubble">${c.teks}</div>
-                        </div>
-                    `;
-                    box.scrollTop = box.scrollHeight;
-                });
-            } else {
-                tampilkanHalaman('page-auth');
+            } else { 
+                window.tampilkanHalaman('page-auth'); 
             }
         };
     </script>
 </head>
 <body>
-
     <div class="container">
-        <div id="btn-setting" class="setting-icon hidden" onclick="tampilkanHalaman('page-setting')">⚙️ Setting</div>
-
-        <!-- Halaman Login / Daftar -->
-        <div id="page-auth" class="page hi
+        <div id="btn-setting" class="setting-icon" onclick="tampilkanHalaman('page-setting')">⚙️ Setting</div>
+        <div id="page-auth" class="page">
+            <h2>Masuk / Daftar</h2>
+            <input type="text" id="namaInput" placeholder="Nama...">
+            <button onclick="masukAkun()">Masuk</button>
+            <button onclick="daftarAkun()">Daftar</button>
+        </div>
+        <div id="page-setting" class="page hidden">
+            <h2>Pengaturan</h2>
+            <button onclick="hapusAkunSteffy()" style="background: #cc0000;">Hapus Akun</button>
+            <button onclick="tampilkanHalaman('page-main')">Kembali</button>
+        </div>
+        <div id="page-main" class="page hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Sosmed</h2>
+                <button onclick="keluar()" style="background: #cc0000; padding: 6px 10px; font-size: 12px;">Logout</button>
+            </div>
+            <button onclick="tampilTab('global')">Global</button>
+            <button onclick="tampilTab('teman')">Teman</button>
+            <div id="chat-global">
+                <h3>Global</h3>
+                <div id="chatBox-global" class="chat-box"></div>
+                <input type="text" id="pesanG" placeholder="Pesan...">
+                <button onclick="kirimPesan('global')">Kirim</button>
+            </div>
+            <div id="chat-teman" style="display:none;">
+                <h3>Teman</h3>
+                <select id="selectTeman" onchange="pilihTemanChat()"></select>
+                <div id="chatBox-teman" class="chat-box"></div>
+                <input type="text" id="pesanT" placeholder="Pesan...">
+                <button onclick="kirimPesan('teman')">Kirim</button>
+            </div>
+            <div class="section-box">
+                <h3>Cari Teman</h3>
+                <input type="text" id="cariInput" placeholder="Cari nama...">
+                <button onclick="cariTeman()">Cari</button>
+                <div id="hasilCari"></div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
