@@ -33,7 +33,6 @@
             onSnapshot 
         } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 
-        // Konfigurasi Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyDrDQ5buiL2or_YYdzEaRT6Cajxv7x6zhQ",
             authDomain: "aplikasi-hemat-data.firebaseapp.com",
@@ -49,7 +48,6 @@
 
         let confirmationResultPhone = null;
 
-        // Inisialisasi reCAPTCHA & Handle Redirect Result
         window.addEventListener('load', async () => {
             window.recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
                 'size': 'invisible'
@@ -65,7 +63,6 @@
             }
         });
 
-        // Simpan data profil ke Firestore
         async function simpanUserKeDatabase(user, customNama = "") {
             const namaTampil = customNama || user.displayName || user.phoneNumber || user.email;
             await setDoc(doc(db, "users", user.uid), {
@@ -78,7 +75,6 @@
             }, { merge: true });
         }
 
-        // Status Observer Auth
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 document.getElementById("auth-section").style.display = "none";
@@ -88,7 +84,6 @@
                 muatProfilSaya(user);
                 pantauDaftarTemanSaya();
 
-                // Set status offline saat halaman ditutup
                 window.addEventListener("beforeunload", () => {
                     setDoc(doc(db, "users", user.uid), { isOnline: false }, { merge: true });
                 });
@@ -98,29 +93,44 @@
             }
         });
 
-        // Load & Tampilkan Profil
         async function muatProfilSaya(user) {
             const userDoc = await getDoc(doc(db, "users", user.uid));
             const data = userDoc.exists() ? userDoc.data() : {};
 
             const namaTampil = data.nama || user.displayName || user.email;
             document.getElementById("user-info").innerText = "Login sebagai: " + namaTampil;
-            document.getElementById("settingNama").value = namaTampil;
-            document.getElementById("settingEmail").value = user.email || "";
-            document.getElementById("settingPin").value = data.pin || "";
+            document.getElementById("inputNamaBaru").value = namaTampil;
+            document.getElementById("inputEmailBaru").value = user.email || "";
 
             const fotoURL = data.photoURL || "https://via.placeholder.com/100";
             document.getElementById("imgFotoProfil").src = fotoURL;
             document.getElementById("previewFoto").src = fotoURL;
         }
 
-        // Toggle Tampilan Menu Settings
+        // Toggle Menu Pengaturan Utamanya
         window.toggleSettings = () => {
             const el = document.getElementById("settings-section");
             el.style.display = (el.style.display === "none") ? "block" : "none";
+            tutupSemuaSubMenu();
         };
 
-        // Konversi Foto ke Base64 (Camera / Album)
+        // Fungsi Buka-Tutup Sub-Menu Terpisah
+        window.bukaSubMenu = (menuId) => {
+            tutupSemuaSubMenu();
+            document.getElementById(menuId).style.display = "block";
+        };
+
+        function tutupSemuaSubMenu() {
+            document.getElementById("sub-foto").style.display = "none";
+            document.getElementById("sub-nama").style.display = "none";
+            document.getElementById("sub-email").style.display = "none";
+            document.getElementById("sub-pin").style.display = "none";
+        }
+
+        // 1. Simpan Foto Profil
+        window.bukaKamera = () => document.getElementById("inputKamera").click();
+        window.bukaAlbum = () => document.getElementById("inputAlbum").click();
+
         window.prosesFoto = (event) => {
             const file = event.target.files[0];
             if (file) {
@@ -132,39 +142,66 @@
             }
         };
 
-        // Simpan Pengaturan
-        window.simpanSettings = async () => {
+        window.simpanFotoProfil = async () => {
             const user = auth.currentUser;
-            const namaBaru = document.getElementById("settingNama").value.trim();
-            const emailBaru = document.getElementById("settingEmail").value.trim();
-            const pinBaru = document.getElementById("settingPin").value.trim();
             const fotoBase64 = document.getElementById("previewFoto").src;
-
             try {
-                if (namaBaru) {
-                    await updateProfile(user, { displayName: namaBaru });
-                }
-                if (emailBaru && emailBaru !== user.email) {
-                    await updateEmail(user, emailBaru);
-                }
-
-                await setDoc(doc(db, "users", user.uid), {
-                    nama: namaBaru,
-                    email: emailBaru,
-                    pin: pinBaru,
-                    photoURL: fotoBase64
-                }, { merge: true });
-
+                await setDoc(doc(db, "users", user.uid), { photoURL: fotoBase64 }, { merge: true });
                 document.getElementById("imgFotoProfil").src = fotoBase64;
-                document.getElementById("user-info").innerText = "Login sebagai: " + namaBaru;
-                alert("Pengaturan berhasil disimpan!");
-                toggleSettings();
+                alert("Foto profil berhasil diperbarui!");
+                tutupSemuaSubMenu();
             } catch (err) {
-                alert("Gagal menyimpan pengaturan: " + err.message);
+                alert("Gagal mengubah foto: " + err.message);
             }
         };
 
-        // 1. Daftar Akun Email
+        // 2. Simpan Nama
+        window.simpanNama = async () => {
+            const user = auth.currentUser;
+            const namaBaru = document.getElementById("inputNamaBaru").value.trim();
+            if (!namaBaru) return alert("Nama tidak boleh kosong!");
+            try {
+                await updateProfile(user, { displayName: namaBaru });
+                await setDoc(doc(db, "users", user.uid), { nama: namaBaru }, { merge: true });
+                document.getElementById("user-info").innerText = "Login sebagai: " + namaBaru;
+                alert("Nama berhasil diperbarui!");
+                tutupSemuaSubMenu();
+            } catch (err) {
+                alert("Gagal mengubah nama: " + err.message);
+            }
+        };
+
+        // 3. Simpan Email
+        window.simpanEmail = async () => {
+            const user = auth.currentUser;
+            const emailBaru = document.getElementById("inputEmailBaru").value.trim();
+            if (!emailBaru) return alert("Email tidak boleh kosong!");
+            try {
+                await updateEmail(user, emailBaru);
+                await setDoc(doc(db, "users", user.uid), { email: emailBaru }, { merge: true });
+                alert("Email berhasil diperbarui!");
+                tutupSemuaSubMenu();
+            } catch (err) {
+                alert("Gagal mengubah email: " + err.message);
+            }
+        };
+
+        // 4. Simpan PIN Keamanan
+        window.simpanPin = async () => {
+            const user = auth.currentUser;
+            const pinBaru = document.getElementById("inputPinBaru").value.trim();
+            if (pinBaru.length < 6) return alert("PIN minimal 6 digit!");
+            try {
+                await setDoc(doc(db, "users", user.uid), { pin: pinBaru }, { merge: true });
+                document.getElementById("inputPinBaru").value = "";
+                alert("PIN Keamanan berhasil diperbarui!");
+                tutupSemuaSubMenu();
+            } catch (err) {
+                alert("Gagal mengubah PIN: " + err.message);
+            }
+        };
+
+        // Auth & Fungsi Lainnya
         window.daftar = async () => {
             const nama = document.getElementById("namaProfil").value.trim();
             const email = document.getElementById("email").value.trim();
@@ -183,7 +220,6 @@
             }
         };
 
-        // 2. Login Email
         window.masuk = async () => {
             const email = document.getElementById("email").value.trim();
             const pass = document.getElementById("password").value;
@@ -195,7 +231,6 @@
             }
         };
 
-        // 3. Google Auth
         window.loginGoogle = async () => {
             const provider = new GoogleAuthProvider();
             try {
@@ -205,7 +240,6 @@
             }
         };
 
-        // 4. Facebook Auth
         window.loginFacebook = async () => {
             const provider = new FacebookAuthProvider();
             try {
@@ -215,7 +249,6 @@
             }
         };
 
-        // 5. Kirim OTP SMS
         window.kirimOTP = async () => {
             const phone = document.getElementById("phoneInput").value.trim();
             if (!phone.startsWith("+")) return alert("Sertakan kode negara! Contoh: +628123456789");
@@ -230,7 +263,6 @@
             }
         };
 
-        // 6. Verifikasi OTP SMS
         window.verifikasiOTP = async () => {
             const code = document.getElementById("otpInput").value.trim();
             if (!code) return alert("Masukkan kode OTP!");
@@ -243,7 +275,6 @@
             }
         };
 
-        // Logout
         window.keluar = async () => {
             if (auth.currentUser) {
                 await setDoc(doc(db, "users", auth.currentUser.uid), { isOnline: false }, { merge: true });
@@ -251,7 +282,6 @@
             signOut(auth);
         };
 
-        // Cari Teman
         window.cariTeman = async () => {
             const keyword = document.getElementById("inputCariNama").value.trim();
             const hasilContainer = document.getElementById("hasilPencarian");
@@ -283,7 +313,6 @@
             }
         };
 
-        // Tambah Teman
         window.tambahTeman = async (friendUid, friendNama) => {
             try {
                 const myUid = auth.currentUser.uid;
@@ -298,7 +327,6 @@
             }
         };
 
-        // Pantau Teman Saya (Realtime + Status Online)
         function pantauDaftarTemanSaya() {
             const myUid = auth.currentUser.uid;
             onSnapshot(collection(db, "users", myUid, "teman"), (snapshot) => {
@@ -312,7 +340,6 @@
 
                 snapshot.forEach((d) => {
                     const teman = d.data();
-                    // Pantau status online masing-masing teman secara realtime
                     onSnapshot(doc(db, "users", teman.uid), (docUser) => {
                         const dataUser = docUser.exists() ? docUser.data() : {};
                         const statusOnline = dataUser.isOnline ? "🟢 <span style='color:green;'>Online</span>" : "🔴 <span style='color:gray;'>Offline</span>";
@@ -344,7 +371,6 @@
             });
         }
 
-        // Video Call
         window.mulaiCall = (namaTeman) => {
             const roomName = "AplikasiHematDataCall_" + btoa((auth.currentUser.displayName || auth.currentUser.uid) + namaTeman).substring(0, 10);
             window.open("https://meet.jit.si/" + roomName, "_blank");
@@ -402,35 +428,65 @@
             </div>
         </div>
 
-        <!-- Panel Pengaturan (Settings) -->
-        <div id="settings-section" style="display:none; background:#f4f4f4; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
-            <h3 style="margin-top:0;">⚙️ Pengaturan Profil</h3>
+        <!-- Menu Pengaturan Terpisah -->
+        <div id="settings-section" style="display:none; background:#f9f9f9; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
+            <h3 style="margin-top:0;">⚙️ Menu Pengaturan</h3>
             
-            <div style="text-align:center; margin-bottom:10px;">
-                <img id="previewFoto" src="https://via.placeholder.com/100" style="width:80px; height:80px; border-radius:50%; object-fit:cover; display:block; margin:0 auto 10px;"><br>
-                <label style="background:#007bff; color:white; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">
-                    📷 Kamera
-                    <input type="file" accept="image/*" capture="camera" onchange="prosesFoto(event)" style="display:none;">
-                </label>
-                <label style="background:#28a745; color:white; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px; margin-left:5px;">
-                    🖼️ Album
-                    <input type="file" accept="image/*" onchange="prosesFoto(event)" style="display:none;">
-                </label>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+                <button onclick="bukaSubMenu('sub-foto')" style="padding:10px; text-align:left; cursor:pointer; background:#fff; border:1px solid #ddd; border-radius:4px;">🖼️ Ubah Foto Profil</button>
+                <button onclick="bukaSubMenu('sub-nama')" style="padding:10px; text-align:left; cursor:pointer; background:#fff; border:1px solid #ddd; border-radius:4px;">✏️ Ubah Nama</button>
+                <button onclick="bukaSubMenu('sub-email')" style="padding:10px; text-align:left; cursor:pointer; background:#fff; border:1px solid #ddd; border-radius:4px;">✉️ Ubah Email</button>
+                <button onclick="bukaSubMenu('sub-pin')" style="padding:10px; text-align:left; cursor:pointer; background:#fff; border:1px solid #ddd; border-radius:4px;">🔒 Ubah PIN Keamanan</button>
             </div>
 
-            <label style="font-size:12px; font-weight:bold;">Nama Profil:</label>
-            <input type="text" id="settingNama" placeholder="Ubah nama..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:8px;"><br>
+            <!-- Sub-Menu 1: Ubah Foto -->
+            <div id="sub-foto" style="display:none; margin-top:15px; padding:10px; background:#fff; border:1px solid #eee; border-radius:5px;">
+                <h4>🖼️ Ubah Foto Profil</h4>
+                <img id="previewFoto" src="https://via.placeholder.com/100" style="width:80px; height:80px; border-radius:50%; object-fit:cover; display:block; margin:0 auto 10px;">
+                
+                <input type="file" id="inputKamera" accept="image/*" capture="environment" onchange="prosesFoto(event)" style="display:none;">
+                <input type="file" id="inputAlbum" accept="image/*" onchange="prosesFoto(event)" style="display:none;">
 
-            <label style="font-size:12px; font-weight:bold;">Email:</label>
-            <input type="email" id="settingEmail" placeholder="Ubah email..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:8px;"><br>
+                <div style="display:flex; justify-content:center; gap:8px; margin-bottom:10px;">
+                    <button type="button" onclick="bukaKamera()" style="background:#007bff; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">📷 Kamera</button>
+                    <button type="button" onclick="bukaAlbum()" style="background:#28a745; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">🖼️ Album</button>
+                </div>
+                <button onclick="simpanFotoProfil()" style="padding:8px; background:green; color:white; border:none; cursor:pointer; width:100%;">Simpan Foto</button>
+            </div>
 
-            <label style="font-size:12px; font-weight:bold;">PIN Keamanan:</label>
-            <input type="password" id="settingPin" maxlength="6" placeholder="Ubah/Buat PIN 6 Digit..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:12px;"><br>
+            <!-- Sub-Menu 2: Ubah Nama -->
+            <div id="sub-nama" style="display:none; margin-top:15px; padding:10px; background:#fff; border:1px solid #eee; border-radius:5px;">
+                <h4>✏️ Ubah Nama</h4>
+                <input type="text" id="inputNamaBaru" placeholder="Masukkan nama baru..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:10px;">
+                <button onclick="simpanNama()" style="padding:8px; background:green; color:white; border:none; cursor:pointer; width:100%;">Simpan Nama</button>
+            </div>
 
-            <button onclick="simpanSettings()" style="padding:8px 15px; background:green; color:white; border:none; cursor:pointer; width:100%;">💾 Simpan Perubahan</button>
+            <!-- Sub-Menu 3: Ubah Email -->
+            <div id="sub-email" style="display:none; margin-top:15px; padding:10px; background:#fff; border:1px solid #eee; border-radius:5px;">
+                <h4>✉️ Ubah Email</h4>
+                <input type="email" id="inputEmailBaru" placeholder="Masukkan email baru..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:10px;">
+                <button onclick="simpanEmail()" style="padding:8px; background:green; color:white; border:none; cursor:pointer; width:100%;">Simpan Email</button>
+            </div>
+
+            <!-- Sub-Menu 4: Ubah PIN -->
+            <div id="sub-pin" style="display:none; margin-top:15px; padding:10px; background:#fff; border:1px solid #eee; border-radius:5px;">
+                <h4>🔒 Ubah PIN Keamanan</h4>
+                <input type="password" id="inputPinBaru" maxlength="6" placeholder="Masukkan 6 digit PIN..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:10px;">
+                <button onclick="simpanPin()" style="padding:8px; background:green; color:white; border:none; cursor:pointer; width:100%;">Simpan PIN</button>
+            </div>
         </div>
 
         <hr style="margin-top: 15px;">
         
         <h3>Cari & Tambah Teman</h3>
- 
+        <input type="text" id="inputCariNama" placeholder="Ketik nama profil teman..." style="padding: 8px; width: 60%;">
+        <button onclick="cariTeman()" style="padding: 8px 12px; cursor: pointer;">🔍 Cari</button>
+        <div id="hasilPencarian" style="margin-top: 10px; background: #f9f9f9; border: 1px solid #ddd; padding: 10px;"></div>
+
+        <hr>
+        <h3>Daftar Teman Saya</h3>
+        <div id="listTeman"></div>
+    </div>
+
+</body>
+</html>
