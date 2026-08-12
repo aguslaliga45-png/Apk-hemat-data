@@ -5,11 +5,12 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
         import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, setDoc, doc, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+        import { getDatabase, ref, set, get, child, push, onChildAdded } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDrDQ5buiL2or_YYdzEaRT6Cajxv7x6zhQ",
             authDomain: "aplikasi-hemat-data.firebaseapp.com",
+            databaseURL: "https://aplikasi-hemat-data-default-rtdb.asia-southeast1.firebasedatabase.app",
             projectId: "aplikasi-hemat-data",
             storageBucket: "aplikasi-hemat-data.firebasestorage.app",
             messagingSenderId: "57465772327",
@@ -18,7 +19,7 @@
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
-        const db = getFirestore(app);
+        const db = getDatabase(app);
 
         let currentUserId = null;
 
@@ -28,35 +29,33 @@
                 document.getElementById("auth-section").style.display = "none";
                 document.getElementById("app-section").style.display = "block";
                 
-                // Cek apakah user sudah punya nama profil di database
-                const docRef = doc(db, "users", user.uid);
-                const docSnap = await getDoc(docRef);
-                
-                if (docSnap.exists() && docSnap.data().nama) {
-                    // Jika sudah ada nama, tampilkan profil
-                    document.getElementById("setup-nama-section").style.display = "none";
-                    document.getElementById("profil-section").style.display = "block";
-                    document.getElementById("user-info").innerText = "Halo, " + docSnap.data().nama;
-                    muatSemuaPengguna();
-                    muatChat();
-                } else {
-                    // Jika belum ada nama, suruh buat nama dulu di dalam
-                    document.getElementById("setup-nama-section").style.display = "block";
-                    document.getElementById("profil-section").style.display = "none";
-                }
+                const dbRef = ref(db);
+                get(child(dbRef, `users/${user.uid}`)).then((snapshot) => {
+                    if (snapshot.exists() && snapshot.val().nama) {
+                        document.getElementById("setup-nama-section").style.display = "none";
+                        document.getElementById("profil-section").style.display = "block";
+                        document.getElementById("user-info").innerText = "Halo, " + snapshot.val().nama;
+                        muatSemuaPengguna();
+                        muatChat();
+                    } else {
+                        document.getElementById("setup-nama-section").style.display = "block";
+                        document.getElementById("profil-section").style.display = "none";
+                    }
+                }).catch((error) => {
+                    alert("Error: " + error.message);
+                });
             } else {
                 document.getElementById("auth-section").style.display = "block";
                 document.getElementById("app-section").style.display = "none";
             }
         });
 
-        // Daftar hanya dengan Email & Password
         window.daftar = async () => {
             const email = document.getElementById("email").value;
             const pass = document.getElementById("password").value;
             try {
                 await createUserWithEmailAndPassword(auth, email, pass);
-                alert("Pendaftaran berhasil! Silakan buat nama profil Anda.");
+                alert("Pendaftaran berhasil!");
             } catch (err) { alert(err.message); }
         };
 
@@ -70,28 +69,32 @@
 
         window.keluar = () => signOut(auth);
 
-        // Simpan Nama Setelah Login
         window.simpanNama = async () => {
             const namaBaru = document.getElementById("namaBaruInput").value;
             if(!namaBaru) { alert("Nama tidak boleh kosong!"); return; }
             
-            await setDoc(doc(db, "users", currentUserId), { 
-                nama: namaBaru, 
-                uid: currentUserId 
-            });
-            alert("Nama profil berhasil disimpan!");
-            location.reload();
+            try {
+                await set(ref(db, 'users/' + currentUserId), {
+                    nama: namaBaru,
+                    uid: currentUserId
+                });
+                alert("Nama profil berhasil disimpan!");
+                location.reload();
+            } catch (err) {
+                alert("Gagal menyimpan: " + err.message);
+            }
         };
 
         window.cariTeman = async () => {
             const keyword = document.getElementById("cariInput").value.toLowerCase();
-            const querySnapshot = await getDocs(collection(db, "users"));
+            const dbRef = ref(db);
+            const snapshot = await get(child(dbRef, `users`));
             const hasilDiv = document.getElementById("hasilPencarian");
             hasilDiv.innerHTML = "<h4>Hasil Pencarian:</h4>";
             
             let ditemukan = false;
-            querySnapshot.forEach((d) => {
-                const userData = d.data();
+            snapshot.forEach((childSnapshot) => {
+                const userData = childSnapshot.val();
                 if(userData.nama && userData.nama.toLowerCase().includes(keyword)) {
                     ditemukan = true;
                     hasilDiv.innerHTML += `<p><b>${userData.nama}</b> <button onclick="tambahTeman('${userData.nama}')">➕ Tambah Teman</button> <button onclick="mulaiCall('${userData.nama}')">📞 Video Call</button></p>`;
@@ -101,11 +104,12 @@
         };
 
         async function muatSemuaPengguna() {
-            const querySnapshot = await getDocs(collection(db, "users"));
+            const dbRef = ref(db);
+            const snapshot = await get(child(dbRef, `users`));
             const listTeman = document.getElementById("listTeman");
             listTeman.innerHTML = "<h4>Daftar Pengguna Lain:</h4>";
-            querySnapshot.forEach((d) => {
-                const userData = d.data();
+            snapshot.forEach((childSnapshot) => {
+                const userData = childSnapshot.val();
                 listTeman.innerHTML += `<p>${userData.nama || "Tanpa Nama"} <button onclick="tambahTeman('${userData.nama}')">➕ Tambah Teman</button> <button onclick="mulaiCall('${userData.nama}')">📞 Video Call</button></p>`;
             });
         }
@@ -122,10 +126,12 @@
         window.kirimPesan = async () => {
             const pesan = document.getElementById("pesanInput").value;
             if(!pesan) return;
-            const docSnap = await getDoc(doc(db, "users", currentUserId));
-            const namaPengirim = docSnap.exists() ? docSnap.data().nama : "User";
+            
+            const dbRef = ref(db);
+            const snapshot = await get(child(dbRef, `users/${currentUserId}`));
+            const namaPengirim = snapshot.exists() ? snapshot.val().nama : "User";
 
-            await addDoc(collection(db, "chats"), {
+            await push(ref(db, 'chats'), {
                 pengirim: namaPengirim,
                 teks: pesan,
                 waktu: Date.now()
@@ -134,14 +140,11 @@
         };
 
         function muatChat() {
-            const q = query(collection(db, "chats"), orderBy("waktu", "asc"));
-            onSnapshot(q, (snapshot) => {
+            const chatRef = ref(db, 'chats');
+            onChildAdded(chatRef, (data) => {
+                let c = data.val();
                 let chatBox = document.getElementById("chatBox");
-                chatBox.innerHTML = "";
-                snapshot.forEach((doc) => {
-                    let c = doc.data();
-                    chatBox.innerHTML += `<b>${c.pengirim}:</b> ${c.teks}<br>`;
-                });
+                chatBox.innerHTML += `<b>${c.pengirim}:</b> ${c.teks}<br>`;
                 chatBox.scrollTop = chatBox.scrollHeight;
             });
         }
@@ -149,7 +152,7 @@
 </head>
 <body style="font-family: sans-serif; padding: 15px;">
 
-    <!-- Halaman Login / Daftar (Hanya Email & Password) -->
+    <!-- Halaman Login -->
     <div id="auth-section">
         <h2>Masuk atau Daftar Aplikasi</h2>
         <input type="email" id="email" placeholder="Email..." style="padding:8px; margin-bottom:5px; width:100%;"><br>
@@ -160,15 +163,12 @@
 
     <!-- Halaman Utama Aplikasi -->
     <div id="app-section" style="display:none;">
-        
-        <!-- Jika akun baru masuk dan belum punya nama profil -->
         <div id="setup-nama-section" style="background: #fffaee; padding: 10px; border: 1px solid #ffd700; margin-bottom: 10px;">
             <h3>Buat Nama Profil Anda Dulu:</h3>
             <input type="text" id="namaBaruInput" placeholder="Ketik nama panggilan/profil..." style="padding: 6px; width: 65%;">
             <button onclick="simpanNama()" style="padding: 6px 12px;">Simpan Nama</button>
         </div>
 
-        <!-- Bagian Setelah Nama Profil Terisi -->
         <div id="profil-section" style="display:none;">
             <span id="user-info" style="font-weight:bold; font-size: 16px;"></span> 
             <button onclick="keluar()" style="float:right; background:red; color:white; border:none; padding:5px;">Logout</button>
@@ -188,7 +188,6 @@
             <input type="text" id="pesanInput" placeholder="Tulis status/pesan..." style="width: 70%; padding: 5px;">
             <button onclick="kirimPesan()" style="padding: 5px;">Kirim</button>
         </div>
-
     </div>
 
 </body>
