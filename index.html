@@ -20,6 +20,13 @@
         .bubble { padding: 10px 14px; border-radius: 18px; font-size: 14px; word-break: break-word; background: #303030; color: #fff; }
         .outgoing .bubble { background: #0084ff; }
         .container { max-width: 600px; margin: 0 auto; padding-top: 10px; }
+        
+        /* Style untuk dropdown hasil pencarian teman */
+        .dropdown-container { position: relative; width: 90%; max-width: 400px; margin-bottom: 10px; }
+        .dropdown-container input { width: 100%; margin-bottom: 0; }
+        .suggestions-list { position: absolute; top: 100%; left: 0; right: 0; background: #1e1e1e; border: 1px solid #444; border-radius: 0 0 5px 5px; max-height: 150px; overflow-y: auto; z-index: 99; display: none; }
+        .suggestion-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #333; color: #fff; }
+        .suggestion-item:hover { background: #2c2c2c; }
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
@@ -31,6 +38,8 @@
         };
         const db = getDatabase(initializeApp(firebaseConfig));
         let currentPrivateListener = null;
+        let daftarSemuaTeman = [];
+        let selectedTargetTeman = "";
 
         window.tampilkanHalaman = (id) => {
             document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
@@ -39,7 +48,9 @@
         };
 
         window.masukAkun = async () => {
-            const nama = document.getElementById("namaInput").value.trim();
+            const namaInput = document.getElementById("namaInput");
+            if (!namaInput) return;
+            const nama = namaInput.value.trim();
             if(!nama) return alert("Masukkan nama Anda!");
             try {
                 const snap = await get(child(ref(db), `users`));
@@ -59,7 +70,9 @@
         };
 
         window.daftarAkun = async () => {
-            const nama = document.getElementById("namaInput").value.trim();
+            const namaInput = document.getElementById("namaInput");
+            if (!namaInput) return;
+            const nama = namaInput.value.trim();
             if(!nama) return alert("Masukkan nama!");
             try {
                 await set(ref(db, 'users/' + Date.now()), { nama });
@@ -116,9 +129,8 @@
             if (jenis === 'global') {
                 path = 'chats/global';
             } else {
-                const temanSelect = document.getElementById("selectTeman");
-                if(!temanSelect || !temanSelect.value) return alert("Pilih teman terlebih dahulu!");
-                path = 'chats/private/' + [nama, temanSelect.value].sort().join("_");
+                if(!selectedTargetTeman) return alert("Pilih teman terlebih dahulu!");
+                path = 'chats/private/' + [nama, selectedTargetTeman].sort().join("_");
             }
 
             try {
@@ -162,15 +174,19 @@
         };
 
         async function muatDaftarTeman() {
-            const select = document.getElementById("selectTeman");
-            if(!select) return;
-            select.innerHTML = '<option value="">-- Pilih Teman --</option>';
+            daftarSemuaTeman = [];
+            selectedTargetTeman = "";
+            const searchInput = document.getElementById("searchChatTeman");
+            if(searchInput) searchInput.value = "";
+            const chatBoxTeman = document.getElementById("chatBox-teman");
+            if(chatBoxTeman) chatBoxTeman.innerHTML = "";
+
             try {
                 const currentId = localStorage.getItem("currentId");
                 const snap = await get(child(ref(db), `friends/${currentId}`));
                 if(snap.exists()) {
                     snap.forEach(c => {
-                        select.innerHTML += `<option value="${c.key}">${c.key}</option>`;
+                        daftarSemuaTeman.push(c.key);
                     });
                 }
             } catch (e) {
@@ -178,34 +194,90 @@
             }
         }
 
-        window.pilihTemanChat = async () => {
-            const target = document.getElementById("selectTeman").value;
+        window.bukaDaftarTeman = () => {
+            tampilkanSaran(daftarSemuaTeman);
+        };
+
+        window.filterKetikTeman = () => {
+            const searchInput = document.getElementById("searchChatTeman");
+            if (!searchInput) return;
+            const keyword = searchInput.value.toLowerCase();
+            const filtered = daftarSemuaTeman.filter(nama => nama.toLowerCase().includes(keyword));
+            tampilkanSaran(filtered);
+            
+            if(!keyword) {
+                selectedTargetTeman = "";
+                const chatBoxTeman = document.getElementById("chatBox-teman");
+                if (chatBoxTeman) chatBoxTeman.innerHTML = "";
+                if(currentPrivateListener) off(currentPrivateListener);
+            }
+        };
+
+        function tampilkanSaran(list) {
+            const listContainer = document.getElementById("suggestionsList");
+            if(!listContainer) return;
+            
+            if(list.length === 0) {
+                listContainer.style.display = "none";
+                return;
+            }
+
+            let html = "";
+            list.forEach(nama => {
+                html += `<div class="suggestion-item" onclick="pilihTemanLangsung('${nama}')">${nama}</div>`;
+            });
+            listContainer.innerHTML = html;
+            listContainer.style.display = "block";
+        }
+
+        window.pilihTemanLangsung = (nama) => {
+            selectedTargetTeman = nama;
+            const searchInput = document.getElementById("searchChatTeman");
+            if (searchInput) searchInput.value = nama;
+            const listContainer = document.getElementById("suggestionsList");
+            if (listContainer) listContainer.style.display = "none";
+            muatChatTemanTarget(nama);
+        };
+
+        function muatChatTemanTarget(target) {
             const box = document.getElementById("chatBox-teman");
             if(!box) return;
             box.innerHTML = "";
             if(currentPrivateListener) off(currentPrivateListener);
             if(!target) return;
 
-            const roomKey = [localStorage.getItem("currentNama"), target].sort().join("_");
+            const currentNama = localStorage.getItem("currentNama");
+            if (!currentNama) return;
+
+            const roomKey = [currentNama, target].sort().join("_");
             currentPrivateListener = ref(db, `chats/private/` + roomKey);
             onChildAdded(currentPrivateListener, (d) => {
                 const c = d.val();
                 if(c && c.pengirim && c.teks) {
-                    const isMe = c.pengirim === localStorage.getItem("currentNama");
+                    const isMe = c.pengirim === currentNama;
                     box.innerHTML += `<div class="chat-row ${isMe ? 'outgoing' : 'incoming'}"><div class="bubble"><b>${c.pengirim}:</b><br>${c.teks}</div></div>`;
                     box.scrollTop = box.scrollHeight;
                 }
             });
-        };
+        }
+
+        window.addEventListener('click', (e) => {
+            const container = document.querySelector('.dropdown-container');
+            const listContainer = document.getElementById("suggestionsList");
+            if(container && listContainer && !container.contains(e.target)) {
+                listContainer.style.display = "none";
+            }
+        });
 
         window.onload = () => {
-            if(localStorage.getItem("currentNama")) {
+            const currentNama = localStorage.getItem("currentNama");
+            if(currentNama) {
                 window.tampilkanHalaman('page-main');
                 onChildAdded(ref(db, 'chats/global'), (d) => {
                     const c = d.val();
                     const globalBox = document.getElementById("chatBox-global");
                     if(c && c.pengirim && c.teks && globalBox) {
-                        const isMe = c.pengirim === localStorage.getItem("currentNama");
+                        const isMe = c.pengirim === currentNama;
                         globalBox.innerHTML += `<div class="chat-row ${isMe ? 'outgoing' : 'incoming'}"><div class="bubble"><b>${c.pengirim}:</b><br>${c.teks}</div></div>`;
                         globalBox.scrollTop = globalBox.scrollHeight;
                     }
@@ -245,13 +317,16 @@
             </div>
             <div id="chat-teman" style="display:none;">
                 <h3>Teman</h3>
-                <select id="selectTeman" onchange="pilihTemanChat()"></select>
+                <div class="dropdown-container">
+                    <input type="text" id="searchChatTeman" placeholder="🔍 Ketik nama teman..." oninput="filterKetikTeman()" onclick="bukaDaftarTeman()" autocomplete="off">
+                    <div id="suggestionsList" class="suggestions-list"></div>
+                </div>
                 <div id="chatBox-teman" class="chat-box"></div>
                 <input type="text" id="pesanT" placeholder="Pesan...">
                 <button onclick="kirimPesan('teman')">Kirim</button>
             </div>
             <div class="section-box">
-                <h3>Cari Teman</h3>
+                <h3>Cari Teman Baru</h3>
                 <input type="text" id="cariInput" placeholder="Cari nama...">
                 <button onclick="cariTeman()">Cari</button>
                 <div id="hasilCari"></div>
