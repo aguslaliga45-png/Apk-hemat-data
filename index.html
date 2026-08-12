@@ -107,12 +107,14 @@
             document.getElementById("previewFoto").src = fotoURL;
         }
 
+        // Toggle Menu Pengaturan Utamanya
         window.toggleSettings = () => {
             const el = document.getElementById("settings-section");
             el.style.display = (el.style.display === "none") ? "block" : "none";
             tutupSemuaSubMenu();
         };
 
+        // Buka Sub-Menu Terpisah
         window.bukaSubMenu = (menuId) => {
             tutupSemuaSubMenu();
             document.getElementById(menuId).style.display = "block";
@@ -125,61 +127,72 @@
             document.getElementById("sub-pin").style.display = "none";
         }
 
+        // 1. Simpan Foto Profil + Kompresi Otomatis
         window.bukaKamera = () => document.getElementById("inputKamera").click();
         window.bukaAlbum = () => document.getElementById("inputAlbum").click();
 
-        // Kompresi Foto Otomatis
         window.prosesFoto = (event) => {
             const file = event.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        const canvas = document.createElement("canvas");
-                        const ctx = canvas.getContext("2d");
-                        const maxDim = 300;
-                        let width = img.width;
-                        let height = img.height;
+            if (!file) return;
 
-                        if (width > height) {
-                            if (width > maxDim) {
-                                height *= maxDim / width;
-                                width = maxDim;
-                            }
-                        } else {
-                            if (height > maxDim) {
-                                width *= maxDim / height;
-                                height = maxDim;
-                            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    // Buat Canvas Kompresi
+                    const canvas = document.createElement("canvas");
+                    const ctx = canvas.getContext("2d");
+                    
+                    const maxDim = 300; // Ukuran maksimum 300px
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > maxDim) {
+                            height *= maxDim / width;
+                            width = maxDim;
                         }
+                    } else {
+                        if (height > maxDim) {
+                            width *= maxDim / height;
+                            height = maxDim;
+                        }
+                    }
 
-                        canvas.width = width;
-                        canvas.height = height;
-                        ctx.drawImage(img, 0, 0, width, height);
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
 
-                        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.7);
-                        document.getElementById("previewFoto").src = compressedDataUrl;
-                    };
-                    img.src = e.target.result;
+                    // Ubah Gambar ke JPEG kualitas 70%
+                    const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
+                    document.getElementById("previewFoto").src = compressedBase64;
                 };
-                reader.readAsDataURL(file);
-            }
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
         };
 
         window.simpanFotoProfil = async () => {
             const user = auth.currentUser;
+            if (!user) return alert("User tidak ditemukan, silakan re-login!");
+
             const fotoBase64 = document.getElementById("previewFoto").src;
+            if (!fotoBase64 || fotoBase64.includes("via.placeholder.com")) {
+                return alert("Pilih foto terlebih dahulu!");
+            }
+
             try {
                 await setDoc(doc(db, "users", user.uid), { photoURL: fotoBase64 }, { merge: true });
                 document.getElementById("imgFotoProfil").src = fotoBase64;
-                alert("Foto profil berhasil diperbarui!");
+                alert("Foto profil berhasil diunggah dan diperbarui!");
                 tutupSemuaSubMenu();
             } catch (err) {
-                alert("Gagal mengubah foto: " + err.message);
+                console.error("Gagal simpan foto:", err);
+                alert("Gagal mengunggah foto: " + err.message);
             }
         };
 
+        // 2. Simpan Nama
         window.simpanNama = async () => {
             const user = auth.currentUser;
             const namaBaru = document.getElementById("inputNamaBaru").value.trim();
@@ -195,6 +208,7 @@
             }
         };
 
+        // 3. Simpan Email
         window.simpanEmail = async () => {
             const user = auth.currentUser;
             const emailBaru = document.getElementById("inputEmailBaru").value.trim();
@@ -205,10 +219,11 @@
                 alert("Email berhasil diperbarui!");
                 tutupSemuaSubMenu();
             } catch (err) {
-                alert("Gagal mengubah email (Mungkin perlu login ulang dulu): " + err.message);
+                alert("Gagal mengubah email (Mungkin perlu login ulang): " + err.message);
             }
         };
 
+        // 4. Simpan PIN Keamanan
         window.simpanPin = async () => {
             const user = auth.currentUser;
             const pinBaru = document.getElementById("inputPinBaru").value.trim();
@@ -223,6 +238,7 @@
             }
         };
 
+        // Auth Functions
         window.daftar = async () => {
             const nama = document.getElementById("namaProfil").value.trim();
             const email = document.getElementById("email").value.trim();
@@ -438,11 +454,4 @@
 
     <!-- Bagian Utama Aplikasi -->
     <div id="app-section" style="display:none;">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
-            <div style="display:flex; align-items:center; gap:10px;">
-                <img id="imgFotoProfil" src="https://via.placeholder.com/100" style="width:45px; height:45px; border-radius:50%; object-fit:cover;">
-                <span id="user-info" style="font-weight:bold;"></span>
-            </div>
-            <div>
-                <button onclick="toggleSettings()" style="padding:6px 10px; cursor:pointer;">⚙️ Pengaturan</button>
-                <button onclick="keluar()" style="background:red; color:wh
+        <div style="display:flex; align-items:center; justify-content:space-between; margin
