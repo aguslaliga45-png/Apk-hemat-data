@@ -41,6 +41,10 @@
 
         .request-item { display: flex; align-items: center; justify-content: space-between; background: #222; padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #333; }
         .request-item button { padding: 5px 10px; font-size: 12px; margin-bottom: 0; background: #2ecc71; }
+        
+        /* Tombol Hapus Teman */
+        .unfriend-btn { background: #e74c3c; color: white; font-size: 11px; padding: 4px 8px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; }
+        .unfriend-btn:hover { background: #c0392b; }
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
@@ -168,7 +172,6 @@
                     const path = 'chats/private/' + [nama, selectedTargetTeman].sort().join("_");
 
                     try {
-                        // Menyertakan timestamp (waktu kirim) untuk sistem auto-delete 1 bulan
                         await push(ref(db, path), { 
                             pengirim: nama, 
                             teks: "", 
@@ -200,7 +203,6 @@
             const path = 'chats/private/' + [nama, selectedTargetTeman].sort().join("_");
 
             try {
-                // Menyertakan timestamp (waktu kirim) untuk sistem auto-delete 1 bulan
                 await push(ref(db, path), { 
                     pengirim: nama, 
                     teks: teks, 
@@ -277,8 +279,8 @@
                 const currentId = localStorage.getItem("currentId");
                 const currentNama = localStorage.getItem("currentNama");
 
-                await set(ref(db, `friends/${currentId}/${pengirimNama}`), { status: "temenan" });
-                await set(ref(db, `friends/${pengirimId}/${currentNama}`), { status: "temenan" });
+                await set(ref(db, `friends/${currentId}/${pengirimNama}`), { status: "temenan", id: pengirimId });
+                await set(ref(db, `friends/${pengirimId}/${currentNama}`), { status: "temenan", id: currentId });
                 await remove(ref(db, `friendRequests/${currentId}/${pengirimId}`));
 
                 alert("Berhasil berteman!");
@@ -286,6 +288,42 @@
                 muatPermintaanTeman();
             } catch (e) {
                 alert("Gagal mengkonfirmasi pertemanan.");
+            }
+        };
+
+        // Fitur Hapus Teman
+        window.hapusTeman = async (namaTeman) => {
+            if(!confirm(`Yakin ingin menghapus ${namaTeman} dari daftar teman?`)) return;
+            try {
+                const currentId = localStorage.getItem("currentId");
+                const currentNama = localStorage.getItem("currentNama");
+
+                let targetId = null;
+                const usersSnap = await get(child(ref(db), `users`));
+                usersSnap.forEach(c => {
+                    if(c.val().nama && c.val().nama.toLowerCase() === namaTeman.toLowerCase()) {
+                        targetId = c.key;
+                    }
+                });
+
+                // Hapus pertemanan dari sisi user saat ini
+                await remove(ref(db, `friends/${currentId}/${namaTeman}`));
+                // Hapus pertemanan dari sisi teman yang dihapus
+                if(targetId) {
+                    await remove(ref(db, `friends/${targetId}/${currentNama}`));
+                }
+
+                alert("Teman berhasil dihapus.");
+                selectedTargetTeman = "";
+                const searchInput = document.getElementById("searchChatTeman");
+                if(searchInput) searchInput.value = "";
+                const chatBoxTeman = document.getElementById("chatBox-teman");
+                if(chatBoxTeman) chatBoxTeman.innerHTML = "";
+                if(currentPrivateListener) off(currentPrivateListener);
+
+                muatDaftarTeman();
+            } catch (e) {
+                alert("Gagal menghapus teman.");
             }
         };
 
@@ -321,12 +359,8 @@
 
         async function muatDaftarTeman() {
             daftarSemuaTeman = [];
-            selectedTargetTeman = "";
-            const searchInput = document.getElementById("searchChatTeman");
-            if(searchInput) searchInput.value = "";
             const chatBoxTeman = document.getElementById("chatBox-teman");
-            if(chatBoxTeman) chatBoxTeman.innerHTML = "";
-
+            
             try {
                 const currentId = localStorage.getItem("currentId");
                 const snap = await get(child(ref(db), `friends/${currentId}`));
@@ -346,6 +380,14 @@
                     });
                     
                     setupGlobalNotifListeners();
+                } else {
+                    if(selectedTargetTeman && !daftarSemuaTeman.some(t => t.nama === selectedTargetTeman)) {
+                        selectedTargetTeman = "";
+                        const searchInput = document.getElementById("searchChatTeman");
+                        if(searchInput) searchInput.value = "";
+                        if(chatBoxTeman) chatBoxTeman.innerHTML = "";
+                        if(currentPrivateListener) off(currentPrivateListener);
+                    }
                 }
             } catch (e) {
                 console.error("Gagal memuat teman");
@@ -426,4 +468,188 @@
             Object.values(statusListeners).forEach(refObj => off(refObj));
             statusListeners = {};
 
-         
+            let html = "";
+            list.forEach(item => {
+                let badgeHtml = unreadMessages[item.nama] ? `<span class="notif-badge">${unreadMessages[item.nama]}</span>` : '';
+                html += `<div class="suggestion-item" data-nama="${item.nama}">
+                    <span style="display: flex; align-items: center; flex: 1; cursor: pointer;" onclick="pilihTemanLangsung('${item.nama}')">${item.nama} ${badgeHtml}</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button class="unfriend-btn" onclick="hapusTeman('${item.nama}')">Hapus</button>
+                        <span id="dot-${item.id || item.nama}" class="status-dot status-offline"></span>
+                    </div>
+                </div>`;
+            });
+            listContainer.innerHTML = html;
+            listContainer.style.display = "block";
+
+            list.forEach(item => {
+                if(item.id) {
+                    const statusRef = ref(db, `status/${item.id}`);
+                    statusListeners[item.id] = statusRef;
+                    onValue(statusRef, (snap) => {
+                        const val = snap.val();
+                        const dotEl = document.getElementById(`dot-${item.id}`);
+                        if(dotEl) {
+                            if(val && val.state === 'online') {
+                                dotEl.className = "status-dot status-online";
+                            } else {
+                                dotEl.className = "status-dot status-offline";
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
+        window.pilihTemanLangsung = (nama) => {
+            selectedTargetTeman = nama;
+            unreadMessages[nama] = 0;
+            const searchInput = document.getElementById("searchChatTeman");
+            if (searchInput) searchInput.value = nama;
+            const listContainer = document.getElementById("suggestionsList");
+            if (listContainer) listContainer.style.display = "none";
+            muatChatTemanTarget(nama);
+        };
+
+        function muatChatTemanTarget(target) {
+            const box = document.getElementById("chatBox-teman");
+            if(!box) return;
+            box.innerHTML = "";
+            if(currentPrivateListener) off(currentPrivateListener);
+            if(!target) return;
+
+            const currentNama = localStorage.getItem("currentNama");
+            if (!currentNama) return;
+
+            const roomKey = [currentNama, target].sort().join("_");
+            const chatRef = ref(db, `chats/private/` + roomKey);
+            currentPrivateListener = chatRef;
+
+            const SATU_BULAN_MS = 30 * 24 * 60 * 60 * 1000;
+            const waktuSekarang = Date.now();
+
+            onChildAdded(chatRef, async (d) => {
+                const c = d.val();
+                const msgId = d.key;
+                
+                if (c && c.pengirim) {
+                    if (c.timestamp && (waktuSekarang - c.timestamp > SATU_BULAN_MS)) {
+                        try {
+                            await remove(ref(db, `chats/private/${roomKey}/${msgId}`));
+                        } catch (err) {}
+                        return;
+                    }
+
+                    const isMe = c.pengirim === currentNama;
+                    let deleteOption = isMe ? `<button class="delete-btn" onclick="hapusPesan('${msgId}')">Hapus</button>` : '';
+                    let kontenIsi = "";
+                    if(c.teks) {
+                        kontenIsi += `<div>${c.teks}</div>`;
+                    }
+                    if(c.gambar) {
+                        kontenIsi += `<img src="${c.gambar}" class="chat-img" alt="gambar">`;
+                    }
+                    box.innerHTML += `<div class="chat-row ${isMe ? 'outgoing' : 'incoming'}" id="msg-${msgId}"><div class="bubble"><b>${c.pengirim}:</b><br>${kontenIsi}${deleteOption}</div></div>`;
+                    box.scrollTop = box.scrollHeight;
+                }
+            });
+
+            onChildRemoved(chatRef, (d) => {
+                const msgId = d.key;
+                const el = document.getElementById(`msg-${msgId}`);
+                if(el) el.remove();
+            });
+        }
+
+        window.addEventListener('click', (e) => {
+            const container = document.querySelector('.dropdown-container');
+            const listContainer = document.getElementById("suggestionsList");
+            if(container && listContainer && !container.contains(e.target)) {
+                listContainer.style.display = "none";
+            }
+        });
+
+        window.onload = async () => {
+            const currentNama = localStorage.getItem("currentNama");
+            const currentId = localStorage.getItem("currentId");
+            if(currentNama && currentId) {
+                const myStatusRef = ref(db, `status/${currentId}`);
+                await set(myStatusRef, { state: 'online' });
+                onDisconnect(myStatusRef).set({ state: 'offline' });
+
+                const bannerNama = document.getElementById("bannerNama");
+                if(bannerNama) bannerNama.innerText = currentNama;
+
+                window.tampilkanHalaman('page-main');
+                muatDaftarTeman();
+                muatPermintaanTeman();
+
+                const reqRef = ref(db, `friendRequests/${currentId}`);
+                friendReqListener = reqRef;
+                onValue(reqRef, () => {
+                    muatPermintaanTeman();
+                });
+
+                // Listen perubahan pada daftar teman (misal dihapus dari sisi lain)
+                const friendsRef = ref(db, `friends/${currentId}`);
+                onValue(friendsRef, () => {
+                    muatDaftarTeman();
+                });
+            } else { 
+                window.tampilkanHalaman('page-auth'); 
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div id="page-auth" class="page">
+            <h2>Masuk / Daftar</h2>
+            <input type="text" id="namaInput" placeholder="Nama...">
+            <button onclick="masukAkun()">Masuk</button>
+            <button onclick="daftarAkun()">Daftar</button>
+        </div>
+        <div id="page-setting" class="page hidden">
+            <h2>Pengaturan</h2>
+            <button onclick="hapusAkunSteffy()" style="background: #cc0000;">Hapus Akun</button>
+            <button onclick="tampilkanHalaman('page-main')">Kembali</button>
+        </div>
+        <div id="page-main" class="page hidden">
+            <div class="user-banner">
+                <span>Login sebagai: <b id="bannerNama"></b></span>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <div id="btn-setting" class="setting-icon" onclick="tampilkanHalaman('page-setting')" style="margin-bottom: 0; padding: 4px 8px; font-size: 12px;">⚙️ Setting</div>
+                    <button onclick="keluar()" style="background: #cc0000; padding: 4px 8px; font-size: 12px; margin-bottom: 0;">Logout</button>
+                </div>
+            </div>
+
+            <div id="requestContainer" class="section-box" style="display: none;">
+                <div id="requestBox"></div>
+            </div>
+
+            <div id="chat-teman">
+                <h3>Teman</h3>
+                <div class="dropdown-container">
+                    <input type="text" id="searchChatTeman" placeholder="🔍 Ketik nama teman..." oninput="filterKetikTeman()" onclick="bukaDaftarTeman()" autocomplete="off">
+                    <div id="suggestionsList" class="suggestions-list"></div>
+                </div>
+                <div id="chatBox-teman" class="chat-box"></div>
+                
+                <div style="display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-bottom: 5px;">
+                    <label class="file-input-label" for="fileGambar">📷 Kirim Gambar</label>
+                    <input type="file" id="fileGambar" accept="image/*" style="display: none;" onchange="handlePilihGambar(this)">
+                </div>
+                
+                <input type="text" id="pesanT" placeholder="Pesan...">
+                <button onclick="kirimPesan()">Kirim</button>
+            </div>
+            <div class="section-box">
+                <h3>Cari Teman Baru</h3>
+                <input type="text" id="cariInput" placeholder="Cari nama...">
+                <button onclick="cariTeman()">Cari</button>
+                <div id="hasilCari"></div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
