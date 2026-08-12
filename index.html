@@ -1,13 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Aplikasi Hemat Data - Super App</title>
+    <title>Aplikasi Hemat Data - Sosmed</title>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
         import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, setDoc, doc, getDocs } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, setDoc, doc, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 
-        // Konfigurasi Firebase Anda
         const firebaseConfig = {
             apiKey: "AIzaSyDrDQ5buiL2or_YYdzEaRT6Cajxv7x6zhQ",
             authDomain: "aplikasi-hemat-data.firebaseapp.com",
@@ -21,32 +20,47 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // Cek Status Login
-        onAuthStateChanged(auth, (user) => {
+        let currentUserProfile = null;
+
+        onAuthStateChanged(auth, async (user) => {
             if (user) {
                 document.getElementById("auth-section").style.display = "none";
                 document.getElementById("app-section").style.display = "block";
-                document.getElementById("user-info").innerText = "Login sebagai: " + user.email;
-                muatDaftarTeman();
+                
+                // Ambil profil nama pengguna dari database
+                const docRef = doc(db, "users", user.uid);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    currentUserProfile = docSnap.data().nama;
+                    document.getElementById("user-info").innerText = "Halo, " + currentUserProfile;
+                }
+                muatSemuaPengguna();
+                muatChat();
             } else {
                 document.getElementById("auth-section").style.display = "block";
                 document.getElementById("app-section").style.display = "none";
             }
         });
 
-        // Fungsi Daftar Akun
+        // Daftar dengan Nama & Email
         window.daftar = async () => {
+            const nama = document.getElementById("namaInput").value;
             const email = document.getElementById("email").value;
             const pass = document.getElementById("password").value;
+            
+            if(!nama) { alert("Nama profil wajib diisi!"); return; }
+
             try {
                 const res = await createUserWithEmailAndPassword(auth, email, pass);
-                // Simpan user ke database agar bisa dicari teman
-                await setDoc(doc(db, "users", res.user.uid), { email: email, uid: res.user.uid });
+                // Simpan Nama Profil ke Firestore berdasarkan UID
+                await setDoc(doc(db, "users", res.user.uid), { 
+                    nama: nama, 
+                    uid: res.user.uid 
+                });
                 alert("Pendaftaran berhasil!");
             } catch (err) { alert(err.message); }
         };
 
-        // Fungsi Login
         window.masuk = async () => {
             const email = document.getElementById("email").value;
             const pass = document.getElementById("password").value;
@@ -55,52 +69,104 @@
             } catch (err) { alert(err.message); }
         };
 
-        // Fungsi Logout
         window.keluar = () => signOut(auth);
 
-        // Muat Daftar Teman / Pengguna Lain
-        async function muatDaftarTeman() {
+        // Cari Pengguna Berdasarkan Nama (Fitur Tambah Teman ala Facebook)
+        window.cariTeman = async () => {
+            const keyword = document.getElementById("cariInput").value.toLowerCase();
             const querySnapshot = await getDocs(collection(db, "users"));
-            const listTeman = document.getElementById("listTeman");
-            listTeman.innerHTML = "<h3>Daftar Pengguna / Teman:</h3>";
+            const hasilDiv = document.getElementById("hasilPencarian");
+            hasilDiv.innerHTML = "<h4>Hasil Pencarian:</h4>";
+            
+            let ditemukan = false;
             querySnapshot.forEach((d) => {
                 const userData = d.data();
-                if(userData.email !== auth.currentUser.email) {
-                    listTeman.innerHTML += `<p>${userData.email} <button onclick="mulaiCall('${userData.email}')">📞 Video Call</button></p>`;
+                if(userData.nama.toLowerCase().includes(keyword) && userData.nama !== currentUserProfile) {
+                    ditemukan = true;
+                    hasilDiv.innerHTML += `<p><b>${userData.nama}</b> <button onclick="tambahTeman('${userData.nama}')">➕ Tambah Teman</button> <button onclick="mulaiCall('${userData.nama}')">📞 Video Call</button></p>`;
+                }
+            });
+            if(!ditemukan) { hasilDiv.innerHTML += "<p>Tidak ditemukan.</p>"; }
+        };
+
+        async function muatSemuaPengguna() {
+            const querySnapshot = await getDocs(collection(db, "users"));
+            const listTeman = document.getElementById("listTeman");
+            listTeman.innerHTML = "<h4>Daftar Pengguna Lain:</h4>";
+            querySnapshot.forEach((d) => {
+                const userData = d.data();
+                if(userData.nama !== currentUserProfile) {
+                    listTeman.innerHTML += `<p>${userData.nama} <button onclick="tambahTeman('${userData.nama}')">➕ Tambah Teman</button> <button onclick="mulaiCall('${userData.nama}')">📞 Video Call</button></p>`;
                 }
             });
         }
 
-        // Fitur Video Call menggunakan Jitsi (Hemat Data & Auto-Adaptif)
+        window.tambahTeman = (namaTeman) => {
+            alert("Permintaan pertemanan dikirim ke " + namaTeman);
+        };
+
         window.mulaiCall = (namaTeman) => {
-            const roomName = "AplikasiHematDataCall_" + btoa(auth.currentUser.email + namaTeman).substring(0, 10);
+            const roomName = "SosmedCall_" + btoa(currentUserProfile + namaTeman).substring(0, 10);
             window.open("https://meet.jit.si/" + roomName, "_blank");
         };
+
+        // Kirim Pesan Chat Global
+        window.kirimPesan = async () => {
+            const pesan = document.getElementById("pesanInput").value;
+            if(!pesan) return;
+            await addDoc(collection(db, "chats"), {
+                pengirim: currentUserProfile,
+                teks: pesan,
+                waktu: Date.now()
+            });
+            document.getElementById("pesanInput").value = "";
+        };
+
+        function muatChat() {
+            const q = query(collection(db, "chats"), orderBy("waktu", "asc"));
+            onSnapshot(q, (snapshot) => {
+                let chatBox = document.getElementById("chatBox");
+                chatBox.innerHTML = "";
+                snapshot.forEach((doc) => {
+                    let c = doc.data();
+                    chatBox.innerHTML += `<b>${c.pengirim}:</b> ${c.teks}<br>`;
+                });
+                chatBox.scrollTop = chatBox.scrollHeight;
+            });
+        }
     </script>
 </head>
 <body style="font-family: sans-serif; padding: 15px;">
 
     <!-- Bagian Login / Daftar -->
     <div id="auth-section">
-        <h2>Masuk atau Daftar Aplikasi</h2>
-        <input type="email" id="email" placeholder="Email..." style="padding:8px; margin-bottom:5px; width:100%;"><br>
+        <h2>Buat Akun Sosmed Baru</h2>
+        <input type="text" id="namaInput" placeholder="Nama Lengkap / Nama Profil..." style="padding:8px; margin-bottom:5px; width:100%;"><br>
+        <input type="email" id="email" placeholder="Email (untuk sandi)..." style="padding:8px; margin-bottom:5px; width:100%;"><br>
         <input type="password" id="password" placeholder="Password..." style="padding:8px; margin-bottom:10px; width:100%;"><br>
         <button onclick="masuk()" style="padding:8px 15px;">Login</button>
         <button onclick="daftar()" style="padding:8px 15px;">Daftar Akun Baru</button>
     </div>
 
-    <!-- Bagian Utama Aplikasi Setelah Login -->
+    <!-- Bagian Utama Aplikasi -->
     <div id="app-section" style="display:none;">
-        <span id="user-info" style="font-weight:bold;"></span> 
+        <span id="user-info" style="font-weight:bold; font-size: 16px;"></span> 
         <button onclick="keluar()" style="float:right; background:red; color:white; border:none; padding:5px;">Logout</button>
         <hr>
-        
+
+        <!-- Fitur Cari Teman Berdasarkan Nama -->
+        <h3>Cari Teman</h3>
+        <input type="text" id="cariInput" placeholder="Ketik nama teman..." style="width: 65%; padding: 5px;">
+        <button onclick="cariTeman()" style="padding: 5px;">Cari</button>
+        <div id="hasilPencarian"></div>
+
+        <hr>
         <div id="listTeman"></div>
         
         <hr>
-        <h3>Ruang Chat Global / Komunitas</h3>
-        <div id="chatBox" style="height: 200px; overflow-y: scroll; border: 1px solid #ccc; padding: 5px; margin-bottom: 5px;"></div>
-        <input type="text" id="pesanInput" placeholder="Tulis pesan..." style="width: 70%; padding: 5px;">
+        <h3>Beranda / Ruang Chat Global</h3>
+        <div id="chatBox" style="height: 180px; overflow-y: scroll; border: 1px solid #ccc; padding: 5px; margin-bottom: 5px;"></div>
+        <input type="text" id="pesanInput" placeholder="Tulis status/pesan..." style="width: 70%; padding: 5px;">
         <button onclick="kirimPesan()" style="padding: 5px;">Kirim</button>
     </div>
 
