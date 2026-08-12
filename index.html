@@ -107,14 +107,12 @@
             document.getElementById("previewFoto").src = fotoURL;
         }
 
-        // Toggle Menu Pengaturan Utamanya
         window.toggleSettings = () => {
             const el = document.getElementById("settings-section");
             el.style.display = (el.style.display === "none") ? "block" : "none";
             tutupSemuaSubMenu();
         };
 
-        // Fungsi Buka-Tutup Sub-Menu Terpisah
         window.bukaSubMenu = (menuId) => {
             tutupSemuaSubMenu();
             document.getElementById(menuId).style.display = "block";
@@ -127,16 +125,43 @@
             document.getElementById("sub-pin").style.display = "none";
         }
 
-        // 1. Simpan Foto Profil
         window.bukaKamera = () => document.getElementById("inputKamera").click();
         window.bukaAlbum = () => document.getElementById("inputAlbum").click();
 
+        // Kompresi Foto Otomatis
         window.prosesFoto = (event) => {
             const file = event.target.files[0];
             if (file) {
                 const reader = new FileReader();
                 reader.onload = (e) => {
-                    document.getElementById("previewFoto").src = e.target.result;
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement("canvas");
+                        const ctx = canvas.getContext("2d");
+                        const maxDim = 300;
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > height) {
+                            if (width > maxDim) {
+                                height *= maxDim / width;
+                                width = maxDim;
+                            }
+                        } else {
+                            if (height > maxDim) {
+                                width *= maxDim / height;
+                                height = maxDim;
+                            }
+                        }
+
+                        canvas.width = width;
+                        canvas.height = height;
+                        ctx.drawImage(img, 0, 0, width, height);
+
+                        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.7);
+                        document.getElementById("previewFoto").src = compressedDataUrl;
+                    };
+                    img.src = e.target.result;
                 };
                 reader.readAsDataURL(file);
             }
@@ -155,7 +180,6 @@
             }
         };
 
-        // 2. Simpan Nama
         window.simpanNama = async () => {
             const user = auth.currentUser;
             const namaBaru = document.getElementById("inputNamaBaru").value.trim();
@@ -171,7 +195,6 @@
             }
         };
 
-        // 3. Simpan Email
         window.simpanEmail = async () => {
             const user = auth.currentUser;
             const emailBaru = document.getElementById("inputEmailBaru").value.trim();
@@ -182,11 +205,10 @@
                 alert("Email berhasil diperbarui!");
                 tutupSemuaSubMenu();
             } catch (err) {
-                alert("Gagal mengubah email: " + err.message);
+                alert("Gagal mengubah email (Mungkin perlu login ulang dulu): " + err.message);
             }
         };
 
-        // 4. Simpan PIN Keamanan
         window.simpanPin = async () => {
             const user = auth.currentUser;
             const pinBaru = document.getElementById("inputPinBaru").value.trim();
@@ -201,7 +223,6 @@
             }
         };
 
-        // Auth & Fungsi Lainnya
         window.daftar = async () => {
             const nama = document.getElementById("namaProfil").value.trim();
             const email = document.getElementById("email").value.trim();
@@ -424,69 +445,4 @@
             </div>
             <div>
                 <button onclick="toggleSettings()" style="padding:6px 10px; cursor:pointer;">⚙️ Pengaturan</button>
-                <button onclick="keluar()" style="background:red; color:white; border:none; padding:6px 12px; cursor: pointer;">Logout</button>
-            </div>
-        </div>
-
-        <!-- Menu Pengaturan Terpisah -->
-        <div id="settings-section" style="display:none; background:#f9f9f9; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
-            <h3 style="margin-top:0;">⚙️ Menu Pengaturan</h3>
-            
-            <div style="display:flex; flex-direction:column; gap:8px;">
-                <button onclick="bukaSubMenu('sub-foto')" style="padding:10px; text-align:left; cursor:pointer; background:#fff; border:1px solid #ddd; border-radius:4px;">🖼️ Ubah Foto Profil</button>
-                <button onclick="bukaSubMenu('sub-nama')" style="padding:10px; text-align:left; cursor:pointer; background:#fff; border:1px solid #ddd; border-radius:4px;">✏️ Ubah Nama</button>
-                <button onclick="bukaSubMenu('sub-email')" style="padding:10px; text-align:left; cursor:pointer; background:#fff; border:1px solid #ddd; border-radius:4px;">✉️ Ubah Email</button>
-                <button onclick="bukaSubMenu('sub-pin')" style="padding:10px; text-align:left; cursor:pointer; background:#fff; border:1px solid #ddd; border-radius:4px;">🔒 Ubah PIN Keamanan</button>
-            </div>
-
-            <!-- Sub-Menu 1: Ubah Foto -->
-            <div id="sub-foto" style="display:none; margin-top:15px; padding:10px; background:#fff; border:1px solid #eee; border-radius:5px;">
-                <h4>🖼️ Ubah Foto Profil</h4>
-                <img id="previewFoto" src="https://via.placeholder.com/100" style="width:80px; height:80px; border-radius:50%; object-fit:cover; display:block; margin:0 auto 10px;">
-                
-                <input type="file" id="inputKamera" accept="image/*" capture="environment" onchange="prosesFoto(event)" style="display:none;">
-                <input type="file" id="inputAlbum" accept="image/*" onchange="prosesFoto(event)" style="display:none;">
-
-                <div style="display:flex; justify-content:center; gap:8px; margin-bottom:10px;">
-                    <button type="button" onclick="bukaKamera()" style="background:#007bff; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">📷 Kamera</button>
-                    <button type="button" onclick="bukaAlbum()" style="background:#28a745; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">🖼️ Album</button>
-                </div>
-                <button onclick="simpanFotoProfil()" style="padding:8px; background:green; color:white; border:none; cursor:pointer; width:100%;">Simpan Foto</button>
-            </div>
-
-            <!-- Sub-Menu 2: Ubah Nama -->
-            <div id="sub-nama" style="display:none; margin-top:15px; padding:10px; background:#fff; border:1px solid #eee; border-radius:5px;">
-                <h4>✏️ Ubah Nama</h4>
-                <input type="text" id="inputNamaBaru" placeholder="Masukkan nama baru..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:10px;">
-                <button onclick="simpanNama()" style="padding:8px; background:green; color:white; border:none; cursor:pointer; width:100%;">Simpan Nama</button>
-            </div>
-
-            <!-- Sub-Menu 3: Ubah Email -->
-            <div id="sub-email" style="display:none; margin-top:15px; padding:10px; background:#fff; border:1px solid #eee; border-radius:5px;">
-                <h4>✉️ Ubah Email</h4>
-                <input type="email" id="inputEmailBaru" placeholder="Masukkan email baru..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:10px;">
-                <button onclick="simpanEmail()" style="padding:8px; background:green; color:white; border:none; cursor:pointer; width:100%;">Simpan Email</button>
-            </div>
-
-            <!-- Sub-Menu 4: Ubah PIN -->
-            <div id="sub-pin" style="display:none; margin-top:15px; padding:10px; background:#fff; border:1px solid #eee; border-radius:5px;">
-                <h4>🔒 Ubah PIN Keamanan</h4>
-                <input type="password" id="inputPinBaru" maxlength="6" placeholder="Masukkan 6 digit PIN..." style="padding:8px; width:100%; box-sizing:border-box; margin-bottom:10px;">
-                <button onclick="simpanPin()" style="padding:8px; background:green; color:white; border:none; cursor:pointer; width:100%;">Simpan PIN</button>
-            </div>
-        </div>
-
-        <hr style="margin-top: 15px;">
-        
-        <h3>Cari & Tambah Teman</h3>
-        <input type="text" id="inputCariNama" placeholder="Ketik nama profil teman..." style="padding: 8px; width: 60%;">
-        <button onclick="cariTeman()" style="padding: 8px 12px; cursor: pointer;">🔍 Cari</button>
-        <div id="hasilPencarian" style="margin-top: 10px; background: #f9f9f9; border: 1px solid #ddd; padding: 10px;"></div>
-
-        <hr>
-        <h3>Daftar Teman Saya</h3>
-        <div id="listTeman"></div>
-    </div>
-
-</body>
-</html>
+                <button onclick="keluar()" style="background:red; color:wh
