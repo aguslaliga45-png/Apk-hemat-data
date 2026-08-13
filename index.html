@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Aplikasi Sosmed Dark Mode</title>
+    <title>Aplikasi Sosmed & Video Call</title>
+    <!-- Tailwind CSS untuk Video Call & UI Modern -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 15px; margin: 0; }
@@ -42,10 +44,11 @@
         .request-item { display: flex; align-items: center; justify-content: space-between; background: #222; padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #333; }
         .request-item button { padding: 5px 10px; font-size: 12px; margin-bottom: 0; background: #2ecc71; }
         
-        /* Tombol Hapus Teman */
         .unfriend-btn { background: #e74c3c; color: white; font-size: 11px; padding: 4px 8px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; }
         .unfriend-btn:hover { background: #c0392b; }
     </style>
+
+    <!-- Firebase SDK Modular (v9) & Compat untuk Video Call -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
         import { getDatabase, ref, set, get, child, push, onChildAdded, onChildRemoved, remove, off, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
@@ -54,7 +57,10 @@
             apiKey: "AIzaSyDrDQ5buiL2or_YYdzEaRT6Cajxv7x6zhQ",
             databaseURL: "https://aplikasi-hemat-data-default-rtdb.asia-southeast1.firebasedatabase.app"
         };
-        const db = getDatabase(initializeApp(firebaseConfig));
+        
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        
         let currentPrivateListener = null;
         let daftarSemuaTeman = [];
         let selectedTargetTeman = "";
@@ -62,6 +68,19 @@
         let globalChatListeners = {};
         let unreadMessages = {};
         let friendReqListener = null;
+
+        // WebRTC Variables
+        let pc;
+        let localStream = null;
+        let remoteStream;
+        let activeCallRoomId = null;
+        let incomingCallListener = null;
+
+        const servers = {
+            iceServers: [
+                { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }
+            ]
+        };
 
         window.tampilkanHalaman = (id) => {
             document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
@@ -291,7 +310,6 @@
             }
         };
 
-        // Fitur Hapus Teman
         window.hapusTeman = async (namaTeman) => {
             if(!confirm(`Yakin ingin menghapus ${namaTeman} dari daftar teman?`)) return;
             try {
@@ -306,9 +324,7 @@
                     }
                 });
 
-                // Hapus pertemanan dari sisi user saat ini
                 await remove(ref(db, `friends/${currentId}/${namaTeman}`));
-                // Hapus pertemanan dari sisi teman yang dihapus
                 if(targetId) {
                     await remove(ref(db, `friends/${targetId}/${currentNama}`));
                 }
@@ -420,236 +436,457 @@
         }
 
         function updateBadgeUI(namaTeman) {
-            const listContainer = document.getElementById("suggestionsList");
-            if(listContainer && listContainer.style.display === "block") {
-                const items = listContainer.querySelectorAll('.suggestion-item');
-                items.forEach(item => {
-                    if(item.dataset.nama === namaTeman) {
-                        let badge = item.querySelector('.notif-badge');
-                        if(!badge) {
-                            badge = document.createElement('span');
-                            badge.className = 'notif-badge';
-                            item.appendChild(badge);
-                        }
-                        badge.innerText = unreadMessages[namaTeman];
+            const suggestionsList = document.getElementById("suggestionsListTeman");
+            if (!suggestionsList) return;
+            const items = suggestionsList.querySelectorAll(".suggestion-item");
+            items.forEach(item => {
+                if (item.getAttribute("data-name") === namaTeman) {
+                    let badge = item.querySelector(".notif-badge");
+                    if (!badge) {
+                        badge = document.createElement("span");
+                        badge.className = "notif-badge";
+                        item.querySelector("div").appendChild(badge);
                     }
-                });
+                    badge.innerText = unreadMessages[namaTeman];
+                }
+            });
+        }
+
+        // Setup Inisialisasi Kamera Global untuk Panggilan Video
+        async function initLocalCamera() {
+            if (localStream) return localStream;
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                const localVideo = document.getElementById('localVideo');
+                if (localVideo) localVideo.srcObject = localStream;
+                return localStream;
+            } catch (err) {
+                alert("Gagal mengakses kamera/mikrofon. Izinkan akses pada browser Anda.");
+                return null;
             }
         }
 
-        window.bukaDaftarTeman = () => {
-            tampilkanSaran(daftarSemuaTeman);
-        };
-
-        window.filterKetikTeman = () => {
-            const searchInput = document.getElementById("searchChatTeman");
-            if (!searchInput) return;
-            const keyword = searchInput.value.toLowerCase();
-            const filtered = daftarSemuaTeman.filter(item => item.nama.toLowerCase().includes(keyword));
-            tampilkanSaran(filtered);
+        // Mulai Panggilan Video Langsung ke Teman Terpilih
+        window.mulaiVideoCall = async () => {
+            if (!selectedTargetTeman) return alert("Pilih teman terlebih dahulu!");
+            const currentNama = localStorage.getItem("currentNama");
             
-            if(!keyword) {
-                selectedTargetTeman = "";
-                const chatBoxTeman = document.getElementById("chatBox-teman");
-                if (chatBoxTeman) chatBoxTeman.innerHTML = "";
-                if(currentPrivateListener) off(currentPrivateListener);
-            }
-        };
+            const stream = await initLocalCamera();
+            if (!stream) return;
 
-        function tampilkanSaran(list) {
-            const listContainer = document.getElementById("suggestionsList");
-            if(!listContainer) return;
-            
-            if(list.length === 0) {
-                listContainer.style.display = "none";
-                return;
-            }
+            // Buat Room ID Unik Berdasarkan Nama Keduanya
+            activeCallRoomId = "call-" + [currentNama, selectedTargetTeman].sort().join("_");
 
-            Object.values(statusListeners).forEach(refObj => off(refObj));
-            statusListeners = {};
+            // Tampilkan UI Halaman Video Call
+            document.getElementById("videoCallModal").classList.remove("hidden");
+            document.getElementById("callStatusText").innerText = `Memanggil ${selectedTargetTeman}...`;
+            document.getElementById("hangupCallBtn").classList.remove("hidden");
 
-            let html = "";
-            list.forEach(item => {
-                let badgeHtml = unreadMessages[item.nama] ? `<span class="notif-badge">${unreadMessages[item.nama]}</span>` : '';
-                html += `<div class="suggestion-item" data-nama="${item.nama}">
-                    <span style="display: flex; align-items: center; flex: 1; cursor: pointer;" onclick="pilihTemanLangsung('${item.nama}')">${item.nama} ${badgeHtml}</span>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <button class="unfriend-btn" onclick="hapusTeman('${item.nama}')">Hapus</button>
-                        <span id="dot-${item.id || item.nama}" class="status-dot status-offline"></span>
-                    </div>
-                </div>`;
+            // Kirim Sinyal Panggilan Masuk via Firebase (Notifications/Call Invite)
+            let targetId = null;
+            const usersSnap = await get(child(ref(db), `users`));
+            usersSnap.forEach(c => {
+                if(c.val().nama && c.val().nama.toLowerCase() === selectedTargetTeman.toLowerCase()) {
+                    targetId = c.key;
+                }
             });
-            listContainer.innerHTML = html;
-            listContainer.style.display = "block";
 
-            list.forEach(item => {
-                if(item.id) {
-                    const statusRef = ref(db, `status/${item.id}`);
-                    statusListeners[item.id] = statusRef;
-                    onValue(statusRef, (snap) => {
-                        const val = snap.val();
-                        const dotEl = document.getElementById(`dot-${item.id}`);
-                        if(dotEl) {
-                            if(val && val.state === 'online') {
-                                dotEl.className = "status-dot status-online";
+            if (targetId) {
+                await set(ref(db, `calls/${targetId}`), {
+                    caller: currentNama,
+                    roomId: activeCallRoomId,
+                    timestamp: Date.now()
+                });
+            }
+
+            // Inisialisasi WebRTC Peer Connection (Caller)
+            pc = new RTCPeerConnection(servers);
+            stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+            remoteStream = new MediaStream();
+            const remoteVideo = document.getElementById('remoteVideo');
+            if (remoteVideo) remoteVideo.srcObject = remoteStream;
+
+            pc.ontrack = event => {
+                event.streams[0].getTracks().forEach(track => {
+                    remoteStream.addTrack(track);
+                });
+                document.getElementById("callStatusText").innerText = "Terhubung dengan " + selectedTargetTeman;
+            };
+
+            const roomRef = ref(db, `rooms/${activeCallRoomId}`);
+            const callerCandidatesRef = child(roomRef, 'callerCandidates');
+            const calleeCandidatesRef = child(roomRef, 'calleeCandidates');
+
+            pc.onicecandidate = event => {
+                if (event.candidate) {
+                    push(callerCandidatesRef, event.candidate.toJSON());
+                }
+            };
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            await set(roomRef, {
+                offer: { type: offer.type, sdp: offer.sdp }
+            });
+
+            onValue(roomRef, async snapshot => {
+                const data = snapshot.val();
+                if (!pc.currentRemoteDescription && data && data.answer) {
+                    const answer = new RTCSessionDescription(data.answer);
+                    await pc.setRemoteDescription(answer);
+                    document.getElementById("callStatusText").innerText = "Terhubung dengan " + selectedTargetTeman;
+                }
+            }, { onlyOnce: true });
+
+            onChildAdded(calleeCandidatesRef, snapshot => {
+                const candidate = new RTCIceCandidate(snapshot.val());
+                if (pc) pc.addIceCandidate(candidate);
+            });
+        };
+
+        // Dengarkan Panggilan Masuk Secara Real-time
+        function setupIncomingCallListener() {
+            const currentId = localStorage.getItem("currentId");
+            if (!currentId) return;
+
+            const callRef = ref(db, `calls/${currentId}`);
+            onValue(callRef, async (snapshot) => {
+                const data = snapshot.val();
+                if (data && data.caller && data.roomId) {
+                    // Tampilkan Popup / Dialog Panggilan Masuk
+                    const terima = confirm(`Panggilan video masuk dari ${data.caller}. Terima?`);
+                    if (terima) {
+                        activeCallRoomId = data.roomId;
+                        selectedTargetTeman = data.caller;
+                        await remove(callRef);
+                        
+                        const stream = await initLocalCamera();
+                        if (!stream) return;
+
+                        document.getElementById("videoCallModal").classList.remove("hidden");
+                        document.getElementById("callStatusText").innerText = `Menghubungkan dengan ${data.caller}...`;
+                        document.getElementById("hangupCallBtn").classList.remove("hidden");
+
+                        pc = new RTCPeerConnection(servers);
+                        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+                        remoteStream = new MediaStream();
+                        const remoteVideo = document.getElementById('remoteVideo');
+                        if (remoteVideo) remoteVideo.srcObject = remoteStream;
+
+                        pc.ontrack = event => {
+                            event.streams[0].getTracks().forEach(track => {
+                                remoteStream.addTrack(track);
+                            });
+                            document.getElementById("callStatusText").innerText = "Terhubung dengan " + data.caller;
+                        };
+
+                        const roomRef = ref(db, `rooms/${activeCallRoomId}`);
+                        const callerCandidatesRef = child(roomRef, 'callerCandidates');
+                        const calleeCandidatesRef = child(roomRef, 'calleeCandidates');
+
+                        pc.onicecandidate = event => {
+                            if (event.candidate) {
+                                push(calleeCandidatesRef, event.candidate.toJSON());
+                            }
+                        };
+
+                        const roomSnapshot = await get(roomRef);
+                        const roomData = roomSnapshot.val();
+                        if (!roomData) {
+                            alert("Panggilan sudah berakhir.");
+                            window. akhiriCall();
+                            return;
+                        }
+
+                        await pc.setRemoteDescription(new RTCSessionDescription(roomData.offer));
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
+
+                        await set(child(roomRef, 'answer'), {
+                            type: answer.type,
+                            sdp: answer.sdp
+                        });
+
+                        onChildAdded(callerCandidatesRef, snapshot => {
+                            const candidate = new RTCIceCandidate(snapshot.val());
+                            if (pc) pc.addIceCandidate(candidate);
+                        });
+
+                    } else {
+                        await remove(callRef);
+                    }
+                }
+            });
+        }
+
+        window.akhiriCall = () => {
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (activeCallRoomId) {
+                remove(ref(db, `rooms/${activeCallRoomId}`));
+                activeCallRoomId = null;
+            }
+            document.getElementById("videoCallModal").classList.add("hidden");
+            document.getElementById("hangupCallBtn").classList.add("hidden");
+        };
+
+        window.onload = () => {
+            const currentNama = localStorage.getItem("currentNama");
+            if (currentNama) {
+                document.getElementById("authSection").classList.add("hidden");
+                document.getElementById("mainAppSection").classList.remove("hidden");
+                document.getElementById("loggedInUserDisplay").innerText = "Login sebagai: " + currentNama;
+                
+                const currentId = localStorage.getItem("currentId");
+                if (currentId) {
+                    const statusRef = ref(db, `status/${currentId}`);
+                    set(statusRef, { state: 'online' });
+                    onDisconnect(statusRef).set({ state: 'offline' });
+                }
+
+                muatDaftarTeman();
+                muatPermintaanTeman();
+                setupIncomingCallListener();
+
+                friendReqListener = setInterval(() => {
+                    muatPermintaanTeman();
+                }, 5000);
+            }
+        };
+
+        // Logika Dropdown Autocomplete Teman & Chat Pribadi
+        document.addEventListener("DOMContentLoaded", () => {
+            const searchInput = document.getElementById("searchChatTeman");
+            const suggestionsList = document.getElementById("suggestionsListTeman");
+            const chatBoxTeman = document.getElementById("chatBox-teman");
+            const activeChatBanner = document.getElementById("activeChatBanner");
+            const activeChatName = document.getElementById("activeChatName");
+            const activeChatStatusDot = document.getElementById("activeChatStatusDot");
+
+            if (searchInput) {
+                searchInput.addEventListener("focus", () => {
+                    renderSuggestions(daftarSemuaTeman);
+                    if(suggestionsList) suggestionsList.style.display = "block";
+                });
+
+                searchInput.addEventListener("input", (e) => {
+                    const val = e.target.value.toLowerCase();
+                    const filtered = daftarSemuaTeman.filter(t => t.nama.toLowerCase().includes(val));
+                    renderSuggestions(filtered);
+                    if(suggestionsList) suggestionsList.style.display = "block";
+                });
+            }
+
+            function renderSuggestions(arr) {
+                if(!suggestionsList) return;
+                if(arr.length === 0) {
+                    suggestionsList.innerHTML = `<div class="suggestion-item" style="justify-content:center;">Tidak ada teman</div>`;
+                    return;
+                }
+                let html = "";
+                arr.forEach(t => {
+                    let badgeHtml = unreadMessages[t.nama] ? `<span class="notif-badge">${unreadMessages[t.nama]}</span>` : "";
+                    html += `<div class="suggestion-item" data-name="${t.nama}" onclick="pilihTemanChat('${t.nama}')">
+                        <div><b>${t.nama}</b> ${badgeHtml}</div>
+                        <button class="unfriend-btn" onclick="event.stopPropagation(); hapusTeman('${t.nama}')">Hapus</button>
+                    </div>`;
+                });
+                suggestionsList.innerHTML = html;
+            }
+
+            document.addEventListener("click", (e) => {
+                if (suggestionsList && !e.target.closest(".dropdown-container")) {
+                    suggestionsList.style.display = "none";
+                }
+            });
+
+            window.pilihTemanChat = (namaTeman) => {
+                selectedTargetTeman = namaTeman;
+                if(searchInput) searchInput.value = namaTeman;
+                if(suggestionsList) suggestionsList.style.display = "none";
+
+                if(unreadMessages[namaTeman]) {
+                    unreadMessages[namaTeman] = 0;
+                    updateBadgeUI(namaTeman);
+                }
+
+                if(activeChatBanner) activeChatBanner.style.display = "flex";
+                if(activeChatName) activeChatName.innerText = namaTeman;
+
+                // Pantau Status Online/Offline Teman
+                const temanObj = daftarSemuaTeman.find(t => t.nama === namaTeman);
+                if(temanObj && temanObj.id) {
+                    if(statusListeners[namaTeman]) off(statusListeners[namaTeman]);
+                    const sRef = ref(db, `status/${temanObj.id}`);
+                    statusListeners[namaTeman] = sRef;
+                    onValue(sRef, (snap) => {
+                        const dat = snap.val();
+                        if(activeChatStatusDot) {
+                            if(dat && dat.state === 'online') {
+                                activeChatStatusDot.className = "status-dot status-online";
                             } else {
-                                dotEl.className = "status-dot status-offline";
+                                activeChatStatusDot.className = "status-dot status-offline";
                             }
                         }
                     });
+                } else {
+                    if(activeChatStatusDot) activeChatStatusDot.className = "status-dot status-offline";
                 }
-            });
-        }
 
-        window.pilihTemanLangsung = (nama) => {
-            selectedTargetTeman = nama;
-            unreadMessages[nama] = 0;
-            const searchInput = document.getElementById("searchChatTeman");
-            if (searchInput) searchInput.value = nama;
-            const listContainer = document.getElementById("suggestionsList");
-            if (listContainer) listContainer.style.display = "none";
-            muatChatTemanTarget(nama);
-        };
+                bukaChatPrivate(namaTeman);
+            };
 
-        function muatChatTemanTarget(target) {
-            const box = document.getElementById("chatBox-teman");
-            if(!box) return;
-            box.innerHTML = "";
-            if(currentPrivateListener) off(currentPrivateListener);
-            if(!target) return;
+            function bukaChatPrivate(namaTeman) {
+                const currentNama = localStorage.getItem("currentNama");
+                if(currentPrivateListener) off(currentPrivateListener);
 
-            const currentNama = localStorage.getItem("currentNama");
-            if (!currentNama) return;
+                const roomKey = [currentNama, namaTeman].sort().join("_");
+                const chatRef = ref(db, `chats/private/` + roomKey);
+                currentPrivateListener = chatRef;
 
-            const roomKey = [currentNama, target].sort().join("_");
-            const chatRef = ref(db, `chats/private/` + roomKey);
-            currentPrivateListener = chatRef;
+                if(chatBoxTeman) chatBoxTeman.innerHTML = "";
 
-            const SATU_BULAN_MS = 30 * 24 * 60 * 60 * 1000;
-            const waktuSekarang = Date.now();
-
-            onChildAdded(chatRef, async (d) => {
-                const c = d.val();
-                const msgId = d.key;
-                
-                if (c && c.pengirim) {
-                    if (c.timestamp && (waktuSekarang - c.timestamp > SATU_BULAN_MS)) {
-                        try {
-                            await remove(ref(db, `chats/private/${roomKey}/${msgId}`));
-                        } catch (err) {}
-                        return;
-                    }
+                onChildAdded(chatRef, (snapshot) => {
+                    const c = snapshot.val();
+                    const key = snapshot.key;
+                    if(!c) return;
 
                     const isMe = c.pengirim === currentNama;
-                    let deleteOption = isMe ? `<button class="delete-btn" onclick="hapusPesan('${msgId}')">Hapus</button>` : '';
-                    let kontenIsi = "";
-                    if(c.teks) {
-                        kontenIsi += `<div>${c.teks}</div>`;
-                    }
-                    if(c.gambar) {
-                        kontenIsi += `<img src="${c.gambar}" class="chat-img" alt="gambar">`;
-                    }
-                    box.innerHTML += `<div class="chat-row ${isMe ? 'outgoing' : 'incoming'}" id="msg-${msgId}"><div class="bubble"><b>${c.pengirim}:</b><br>${kontenIsi}${deleteOption}</div></div>`;
-                    box.scrollTop = box.scrollHeight;
-                }
-            });
+                    const rowClass = isMe ? "chat-row outgoing" : "chat-row incoming";
+                    
+                    let kontenPesan = "";
+                    if(c.teks) kontenPesan += `<span>${escapeHtml(c.teks)}</span>`;
+                    if(c.gambar) kontenPesan += `<img src="${c.gambar}" class="chat-img" />`;
 
-            onChildRemoved(chatRef, (d) => {
-                const msgId = d.key;
-                const el = document.getElementById(`msg-${msgId}`);
-                if(el) el.remove();
-            });
-        }
+                    let deleteBtnHtml = isMe ? `<button class="delete-btn" onclick="hapusPesan('${key}')">Hapus</button>` : "";
 
-        window.addEventListener('click', (e) => {
-            const container = document.querySelector('.dropdown-container');
-            const listContainer = document.getElementById("suggestionsList");
-            if(container && listContainer && !container.contains(e.target)) {
-                listContainer.style.display = "none";
+                    const div = document.createElement("div");
+                    div.className = rowClass;
+                    div.innerHTML = `<div class="bubble">${kontenPesan}${deleteBtnHtml}</div>`;
+                    
+                    if(chatBoxTeman) {
+                        chatBoxTeman.appendChild(div);
+                        chatBoxTeman.scrollTop = chatBoxTeman.scrollHeight;
+                    }
+                });
+            }
+
+            function escapeHtml(text) {
+                const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+                return text.replace(/[&<>"']/g, function(m) { return map[m]; });
             }
         });
-
-        window.onload = async () => {
-            const currentNama = localStorage.getItem("currentNama");
-            const currentId = localStorage.getItem("currentId");
-            if(currentNama && currentId) {
-                const myStatusRef = ref(db, `status/${currentId}`);
-                await set(myStatusRef, { state: 'online' });
-                onDisconnect(myStatusRef).set({ state: 'offline' });
-
-                const bannerNama = document.getElementById("bannerNama");
-                if(bannerNama) bannerNama.innerText = currentNama;
-
-                window.tampilkanHalaman('page-main');
-                muatDaftarTeman();
-                muatPermintaanTeman();
-
-                const reqRef = ref(db, `friendRequests/${currentId}`);
-                friendReqListener = reqRef;
-                onValue(reqRef, () => {
-                    muatPermintaanTeman();
-                });
-
-                // Listen perubahan pada daftar teman (misal dihapus dari sisi lain)
-                const friendsRef = ref(db, `friends/${currentId}`);
-                onValue(friendsRef, () => {
-                    muatDaftarTeman();
-                });
-            } else { 
-                window.tampilkanHalaman('page-auth'); 
-            }
-        };
     </script>
 </head>
 <body>
+
     <div class="container">
-        <div id="page-auth" class="page">
-            <h2>Masuk / Daftar</h2>
-            <input type="text" id="namaInput" placeholder="Nama...">
+        
+        <!-- BAGIAN OTENTIKASI (LOGIN / DAFTAR) -->
+        <div id="authSection" class="section-box">
+            <h2>Masuk / Daftar Akun</h2>
+            <input type="text" id="namaInput" placeholder="Masukkan Nama Anda">
             <button onclick="masukAkun()">Masuk</button>
-            <button onclick="daftarAkun()">Daftar</button>
+            <button onclick="daftarAkun()" style="background: #27ae60;">Daftar</button>
         </div>
-        <div id="page-setting" class="page hidden">
-            <h2>Pengaturan</h2>
-            <button onclick="hapusAkunSteffy()" style="background: #cc0000;">Hapus Akun</button>
-            <button onclick="tampilkanHalaman('page-main')">Kembali</button>
-        </div>
-        <div id="page-main" class="page hidden">
+
+        <!-- BAGIAN UTAMA APLIKASI (CHAT & SOSMED) -->
+        <div id="mainAppSection" class="section-box hidden">
             <div class="user-banner">
-                <span>Login sebagai: <b id="bannerNama"></b></span>
-                <div style="display: flex; gap: 6px; align-items: center;">
-                    <div id="btn-setting" class="setting-icon" onclick="tampilkanHalaman('page-setting')" style="margin-bottom: 0; padding: 4px 8px; font-size: 12px;">⚙️ Setting</div>
-                    <button onclick="keluar()" style="background: #cc0000; padding: 4px 8px; font-size: 12px; margin-bottom: 0;">Logout</button>
+                <span id="loggedInUserDisplay">Login sebagai: -</span>
+                <div>
+                    <span class="setting-icon" onclick="tampilkanHalaman('halamanPengaturan')">Pengaturan</span>
                 </div>
             </div>
 
-            <div id="requestContainer" class="section-box" style="display: none;">
-                <div id="requestBox"></div>
-            </div>
-
-            <div id="chat-teman">
-                <h3>Teman</h3>
+            <!-- MENU UTAMA: CHAT -->
+            <div id="halamanChat" class="page">
+                <h3>Chat Personal & Video Call</h3>
+                
+                <!-- Pilih Teman -->
                 <div class="dropdown-container">
-                    <input type="text" id="searchChatTeman" placeholder="🔍 Ketik nama teman..." oninput="filterKetikTeman()" onclick="bukaDaftarTeman()" autocomplete="off">
-                    <div id="suggestionsList" class="suggestions-list"></div>
+                    <input type="text" id="searchChatTeman" placeholder="Cari atau pilih teman..." autocomplete="off">
+                    <div id="suggestionsListTeman" class="suggestions-list"></div>
                 </div>
+
+                <!-- Banner Informasi Teman Aktif & Tombol Video Call Langsung -->
+                <div id="activeChatBanner" class="user-banner" style="display: none; margin-bottom: 5px;">
+                    <div style="display: flex; align-items: center;">
+                        <span id="activeChatName" style="font-weight: bold;">-</span>
+                        <span id="activeChatStatusDot" class="status-dot status-offline"></span>
+                    </div>
+                    <button onclick="mulaiVideoCall()" style="background: #8e44ad; padding: 6px 12px; font-size: 13px; margin-bottom: 0;">🎥 Video Call</button>
+                </div>
+
+                <!-- Kotak Chat -->
                 <div id="chatBox-teman" class="chat-box"></div>
-                
-                <div style="display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-bottom: 5px;">
-                    <label class="file-input-label" for="fileGambar">📷 Kirim Gambar</label>
-                    <input type="file" id="fileGambar" accept="image/*" style="display: none;" onchange="handlePilihGambar(this)">
+
+                <!-- Input Pesan & Gambar -->
+                <div style="margin-top: 5px;">
+                    <label class="file-input-label" for="fileGambar">📷 Kirim Foto</label>
+                    <input type="file" id="fileGambar" accept="image/*" style="display:none;" onchange="handlePilihGambar(this)">
+                    <div style="display: flex; gap: 5px;">
+                        <input type="text" id="pesanT" placeholder="Tulis pesan..." style="flex:1; margin-bottom:0;" onkeypress="if(event.key === 'Enter') kirimPesan()">
+                        <button onclick="kirimPesan()" style="margin-bottom: 0;">Kirim</button>
+                    </div>
                 </div>
+            </div>
+
+            <!-- HALAMAN PENGATURAN / AKUN & CARI TEMAN -->
+            <div id="halamanPengaturan" class="page hidden">
+                <span class="setting-icon" onclick="tampilkanHalaman('halamanChat')" style="margin-bottom: 15px;">⬅️ Kembali ke Chat</span>
                 
-                <input type="text" id="pesanT" placeholder="Pesan...">
-                <button onclick="kirimPesan()">Kirim</button>
-            </div>
-            <div class="section-box">
                 <h3>Cari Teman Baru</h3>
-                <input type="text" id="cariInput" placeholder="Cari nama...">
+                <input type="text" id="cariInput" placeholder="Cari nama teman...">
                 <button onclick="cariTeman()">Cari</button>
-                <div id="hasilCari"></div>
+                <div id="hasilCari" style="margin-top: 10px;"></div>
+
+                <div id="requestContainer" style="display:none; margin-top: 20px;">
+                    <div id="requestBox"></div>
+                </div>
+
+                <hr style="border-color: #333; margin: 20px 0;">
+
+                <h3>Pengaturan Akun</h3>
+                <button onclick="keluar()" style="background: #e67e22; width: 100%;">Keluar Akun</button>
+                <button onclick="hapusAkunSteffy()" style="background: #c0392b; width: 100%; margin-top: 5px;">Hapus Akun Permanen</button>
             </div>
+
         </div>
+
     </div>
+
+    <!-- MODAL PANGGILAN VIDEO CALL (FULLSCREEN / OVERLAY) -->
+    <div id="videoCallModal" class="hidden fixed inset-0 z-50 bg-slate-900/95 flex flex-col justify-between p-4">
+        <!-- Header Call -->
+        <div class="bg-slate-800 p-4 rounded-xl shadow-md text-center flex justify-between items-center max-w-4xl mx-auto w-full">
+            <h2 id="callStatusText" class="text-lg font-bold text-blue-400">Menghubungkan...</h2>
+            <button id="hangupCallBtn" onclick="akhiriCall()" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-medium transition text-sm">Tutup Panggilan</button>
+        </div>
+
+        <!-- Video Grid -->
+        <main class="flex-1 p-2 max-w-4xl mx-auto w-full flex flex-col md:flex-row gap-4 items-center justify-center">
+            <!-- Video Lokal -->
+            <div class="relative w-full md:w-1/2 bg-black rounded-xl overflow-hidden shadow-lg aspect-video flex items-center justify-center">
+                <video id="localVideo" autoplay muted playsinline class="w-full h-full object-cover transform -scale-x-100"></video>
+                <span class="absolute bottom-3 left-3 bg-black/60 px-3 py-1 rounded-md text-xs">Anda</span>
+            </div>
+            <!-- Video Lawan Bicara (Remote) -->
+            <div class="relative w-full md:w-1/2 bg-black rounded-xl overflow-hidden shadow-lg aspect-video flex items-center justify-center">
+                <video id="remoteVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+                <span class="absolute bottom-3 left-3 bg-black/60 px-3 py-1 rounded-md text-xs">Lawan Bicara</span>
+            </div>
+        </main>
+    </div>
+
 </body>
 </html>
