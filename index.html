@@ -454,7 +454,11 @@
         async function initLocalCamera() {
             if (localStream) return localStream;
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                // Dioptimalkan untuk resolusi sangat kecil (QVGA 320x240, 15fps) agar hemat kuota dan lancar di jaringan 3G
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } }, 
+                    audio: true 
+                });
                 const localVideo = document.getElementById('localVideo');
                 if (localVideo) {
                     localVideo.srcObject = localStream;
@@ -509,7 +513,10 @@
                     remoteStream.addTrack(track);
                 });
                 const rv = document.getElementById('remoteVideo');
-                if (rv.paused) rv.play().catch(e => console.log(e));
+                if (rv) {
+                    rv.srcObject = event.streams[0];
+                    rv.play().catch(e => console.log("Error playing remote video:", e));
+                }
                 document.getElementById("callStatusText").innerText = "Terhubung dengan " + selectedTargetTeman;
             };
 
@@ -536,7 +543,10 @@
                     const answer = new RTCSessionDescription(data.answer);
                     await pc.setRemoteDescription(answer);
                     const rv = document.getElementById('remoteVideo');
-                    if (rv.paused) rv.play().catch(e => console.log(e));
+                    if (rv && remoteStream) {
+                        rv.srcObject = remoteStream;
+                        rv.play().catch(e => console.log("Error playing remote video:", e));
+                    }
                     document.getElementById("callStatusText").innerText = "Terhubung dengan " + selectedTargetTeman;
                 }
             }, { onlyOnce: true });
@@ -572,7 +582,10 @@
                     remoteStream.addTrack(track);
                 });
                 const rv = document.getElementById('remoteVideo');
-                if (rv.paused) rv.play().catch(e => console.log(e));
+                if (rv) {
+                    rv.srcObject = event.streams[0];
+                    rv.play().catch(e => console.log("Error playing remote video:", e));
+                }
                 document.getElementById("callStatusText").innerText = "Terhubung dengan " + callerNama;
             };
 
@@ -907,7 +920,7 @@
                 <video id="localVideo" autoplay muted playsinline class="w-full h-full object-cover transform -scale-x-100"></video>
                 <span class="absolute bottom-3 left-3 bg-black/60 px-3 py-1 rounded-md text-xs">Anda</span>
             </div>
-            <!-- Video Lawan Bicara (Remote - Diperbaiki agar pemutaran video stream langsung dipaksa aktif dan tidak blank hitam) -->
+            <!-- Video Lawan Bicara (Remote - Diperbaiki agar pemutaran video stream langsung dipaksa aktif dan tidak blank hitam, serta audio aktif) -->
             <div class="relative w-full md:w-1/2 bg-black rounded-xl overflow-hidden shadow-lg aspect-video flex items-center justify-center">
                 <video id="remoteVideo" autoplay playsinline class="w-full h-full object-cover"></video>
                 <span class="absolute bottom-3 left-3 bg-black/60 px-3 py-1 rounded-md text-xs">Lawan Bicara</span>
