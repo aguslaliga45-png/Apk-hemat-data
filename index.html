@@ -425,4 +425,495 @@
                 onChildAdded(chatRef, (d) => {
                     const c = d.val();
                     if(c && c.pengirim && c.pengirim !== currentNama) {
-     
+                        if(selectedTargetTeman !== temanNama) {
+                            unreadMessages[temanNama] = (unreadMessages[temanNama] || 0) + 1;
+                            updateBadgeUI(temanNama);
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateBadgeUI(namaTeman) {
+            const suggestionsList = document.getElementById("suggestionsListTeman");
+            if (!suggestionsList) return;
+            const items = suggestionsList.querySelectorAll(".suggestion-item");
+            items.forEach(item => {
+                if (item.getAttribute("data-name") === namaTeman) {
+                    let badge = item.querySelector(".notif-badge");
+                    if (!badge) {
+                        badge = document.createElement("span");
+                        badge.className = "notif-badge";
+                        item.querySelector("div").appendChild(badge);
+                    }
+                    badge.innerText = unreadMessages[namaTeman];
+                }
+            });
+        }
+
+        async function initLocalCamera() {
+            if (localStream) return localStream;
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                const localVideo = document.getElementById('localVideo');
+                if (localVideo) {
+                    localVideo.srcObject = localStream;
+                }
+                return localStream;
+            } catch (err) {
+                alert("Gagal mengakses kamera/mikrofon. Izinkan akses pada browser Anda.");
+                return null;
+            }
+        }
+
+        // Mulai Panggilan Video Sebagai Pemrakarsa (Caller)
+        window.mulaiVideoCall = async () => {
+            if (!selectedTargetTeman) return alert("Pilih teman terlebih dahulu!");
+            const currentNama = localStorage.getItem("currentNama");
+            
+            const stream = await initLocalCamera();
+            if (!stream) return;
+
+            activeCallRoomId = "call-" + [currentNama, selectedTargetTeman].sort().join("_");
+
+            document.getElementById("videoCallModal").classList.remove("hidden");
+            document.getElementById("callStatusText").innerText = `Memanggil ${selectedTargetTeman}...`;
+
+            let targetId = null;
+            const usersSnap = await get(child(ref(db), `users`));
+            usersSnap.forEach(c => {
+                if(c.val().nama && c.val().nama.toLowerCase() === selectedTargetTeman.toLowerCase()) {
+                    targetId = c.key;
+                }
+            });
+
+            if (targetId) {
+                await set(ref(db, `calls/${targetId}`), {
+                    caller: currentNama,
+                    roomId: activeCallRoomId,
+                    timestamp: Date.now()
+                });
+            }
+
+            pc = new RTCPeerConnection(servers);
+            stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+            remoteStream = new MediaStream();
+            const remoteVideo = document.getElementById('remoteVideo');
+            if (remoteVideo) {
+                remoteVideo.srcObject = remoteStream;
+            }
+
+            pc.ontrack = event => {
+                event.streams[0].getTracks().forEach(track => {
+                    remoteStream.addTrack(track);
+                });
+                const rv = document.getElementById('remoteVideo');
+                if (rv.paused) rv.play().catch(e => console.log(e));
+                document.getElementById("callStatusText").innerText = "Terhubung dengan " + selectedTargetTeman;
+            };
+
+            const roomRef = ref(db, `rooms/${activeCallRoomId}`);
+            const callerCandidatesRef = child(roomRef, 'callerCandidates');
+            const calleeCandidatesRef = child(roomRef, 'calleeCandidates');
+
+            pc.onicecandidate = event => {
+                if (event.candidate) {
+                    push(callerCandidatesRef, event.candidate.toJSON());
+                }
+            };
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            await set(roomRef, {
+                offer: { type: offer.type, sdp: offer.sdp }
+            });
+
+            onValue(roomRef, async snapshot => {
+                const data = snapshot.val();
+                if (!pc.currentRemoteDescription && data && data.answer) {
+                    const answer = new RTCSessionDescription(data.answer);
+                    await pc.setRemoteDescription(answer);
+                    const rv = document.getElementById('remoteVideo');
+                    if (rv.paused) rv.play().catch(e => console.log(e));
+                    document.getElementById("callStatusText").innerText = "Terhubung dengan " + selectedTargetTeman;
+                }
+            }, { onlyOnce: true });
+
+            onChildAdded(calleeCandidatesRef, snapshot => {
+                const candidate = new RTCIceCandidate(snapshot.val());
+                if (pc) pc.addIceCandidate(candidate);
+            });
+        };
+
+        // Terima Panggilan Masuk Secara Otomatis Saat Tombol Dikonfirmasi
+        async function terimaPanggilanMasuk(callerNama, roomId) {
+            activeCallRoomId = roomId;
+            selectedTargetTeman = callerNama;
+
+            const stream = await initLocalCamera();
+            if (!stream) return;
+
+            document.getElementById("videoCallModal").classList.remove("hidden");
+            document.getElementById("callStatusText").innerText = `Menghubungkan dengan ${callerNama}...`;
+
+            pc = new RTCPeerConnection(servers);
+            stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+            remoteStream = new MediaStream();
+            const remoteVideo = document.getElementById('remoteVideo');
+            if (remoteVideo) {
+                remoteVideo.srcObject = remoteStream;
+            }
+
+            pc.ontrack = event => {
+                event.streams[0].getTracks().forEach(track => {
+                    remoteStream.addTrack(track);
+                });
+                const rv = document.getElementById('remoteVideo');
+                if (rv.paused) rv.play().catch(e => console.log(e));
+                document.getElementById("callStatusText").innerText = "Terhubung dengan " + callerNama;
+            };
+
+            const roomRef = ref(db, `rooms/${activeCallRoomId}`);
+            const callerCandidatesRef = child(roomRef, 'callerCandidates');
+            const calleeCandidatesRef = child(roomRef, 'calleeCandidates');
+
+            pc.onicecandidate = event => {
+                if (event.candidate) {
+                    push(calleeCandidatesRef, event.candidate.toJSON());
+                }
+            };
+
+            const roomSnapshot = await get(roomRef);
+            const roomData = roomSnapshot.val();
+            if (!roomData) {
+                alert("Panggilan sudah berakhir.");
+                window.akhiriCall();
+                return;
+            }
+
+            await pc.setRemoteDescription(new RTCSessionDescription(roomData.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            await set(child(roomRef, 'answer'), {
+                type: answer.type,
+                sdp: answer.sdp
+            });
+
+            onChildAdded(callerCandidatesRef, snapshot => {
+                const candidate = new RTCIceCandidate(snapshot.val());
+                if (pc) pc.addIceCandidate(candidate);
+            });
+        }
+
+        function setupIncomingCallListener() {
+            const currentId = localStorage.getItem("currentId");
+            if (!currentId) return;
+
+            const callRef = ref(db, `calls/${currentId}`);
+            onValue(callRef, async (snapshot) => {
+                const data = snapshot.val();
+                if (data && data.caller && data.roomId) {
+                    const callerName = data.caller;
+                    const roomId = data.roomId;
+                    await remove(callRef);
+
+                    // Tampilkan UI Banner Panggilan Masuk yang Jelas di Dalam Aplikasi
+                    const incomingBanner = document.getElementById("incomingCallBanner");
+                    const incomingText = document.getElementById("incomingCallText");
+                    if (incomingBanner && incomingText) {
+                        incomingText.innerText = `${callerName} memanggil Anda...`;
+                        incomingBanner.classList.remove("hidden");
+
+                        window.terimaPanggilanAktif = async () => {
+                            incomingBanner.classList.add("hidden");
+                            await terimaPanggilanMasuk(callerName, roomId);
+                        };
+
+                        window.tolakPanggilanAktif = () => {
+                            incomingBanner.classList.add("hidden");
+                        };
+                    }
+                }
+            });
+        }
+
+        window.akhiriCall = () => {
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (activeCallRoomId) {
+                remove(ref(db, `rooms/${activeCallRoomId}`));
+                activeCallRoomId = null;
+            }
+            document.getElementById("videoCallModal").classList.add("hidden");
+            const incomingBanner = document.getElementById("incomingCallBanner");
+            if (incomingBanner) incomingBanner.classList.add("hidden");
+        };
+
+        window.onload = () => {
+            const currentNama = localStorage.getItem("currentNama");
+            if (currentNama) {
+                document.getElementById("authSection").classList.add("hidden");
+                document.getElementById("mainAppSection").classList.remove("hidden");
+                document.getElementById("loggedInUserDisplay").innerText = "Login sebagai: " + currentNama;
+                
+                const currentId = localStorage.getItem("currentId");
+                if (currentId) {
+                    const statusRef = ref(db, `status/${currentId}`);
+                    set(statusRef, { state: 'online' });
+                    onDisconnect(statusRef).set({ state: 'offline' });
+                }
+
+                muatDaftarTeman();
+                muatPermintaanTeman();
+                setupIncomingCallListener();
+
+                friendReqListener = setInterval(() => {
+                    muatPermintaanTeman();
+                }, 5000);
+            }
+        };
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const searchInput = document.getElementById("searchChatTeman");
+            const suggestionsList = document.getElementById("suggestionsListTeman");
+            const chatBoxTeman = document.getElementById("chatBox-teman");
+            const activeChatBanner = document.getElementById("activeChatBanner");
+            const activeChatName = document.getElementById("activeChatName");
+            const activeChatStatusDot = document.getElementById("activeChatStatusDot");
+
+            if (searchInput) {
+                searchInput.addEventListener("focus", () => {
+                    renderSuggestions(daftarSemuaTeman);
+                    if(suggestionsList) suggestionsList.style.display = "block";
+                });
+
+                searchInput.addEventListener("input", (e) => {
+                    const val = e.target.value.toLowerCase();
+                    const filtered = daftarSemuaTeman.filter(t => t.nama.toLowerCase().includes(val));
+                    renderSuggestions(filtered);
+                    if(suggestionsList) suggestionsList.style.display = "block";
+                });
+            }
+
+            function renderSuggestions(arr) {
+                if(!suggestionsList) return;
+                if(arr.length === 0) {
+                    suggestionsList.innerHTML = `<div class="suggestion-item" style="justify-content:center;">Tidak ada teman</div>`;
+                    return;
+                }
+                let html = "";
+                arr.forEach(t => {
+                    let badgeHtml = unreadMessages[t.nama] ? `<span class="notif-badge">${unreadMessages[t.nama]}</span>` : "";
+                    html += `<div class="suggestion-item" data-name="${t.nama}" onclick="pilihTemanChat('${t.nama}')">
+                        <div><b>${t.nama}</b> ${badgeHtml}</div>
+                        <button class="unfriend-btn" onclick="event.stopPropagation(); hapusTeman('${t.nama}')">Hapus</button>
+                    </div>`;
+                });
+                suggestionsList.innerHTML = html;
+            }
+
+            document.addEventListener("click", (e) => {
+                if (suggestionsList && !e.target.closest(".dropdown-container")) {
+                    suggestionsList.style.display = "none";
+                }
+            });
+
+            window.pilihTemanChat = (namaTeman) => {
+                selectedTargetTeman = namaTeman;
+                if(searchInput) searchInput.value = namaTeman;
+                if(suggestionsList) suggestionsList.style.display = "none";
+
+                if(unreadMessages[namaTeman]) {
+                    unreadMessages[namaTeman] = 0;
+                    updateBadgeUI(namaTeman);
+                }
+
+                if(activeChatBanner) activeChatBanner.style.display = "flex";
+                if(activeChatName) activeChatName.innerText = namaTeman;
+
+                const temanObj = daftarSemuaTeman.find(t => t.nama === namaTeman);
+                if(temanObj && temanObj.id) {
+                    if(statusListeners[namaTeman]) off(statusListeners[namaTeman]);
+                    const sRef = ref(db, `status/${temanObj.id}`);
+                    statusListeners[namaTeman] = sRef;
+                    onValue(sRef, (snap) => {
+                        const dat = snap.val();
+                        if(activeChatStatusDot) {
+                            if(dat && dat.state === 'online') {
+                                activeChatStatusDot.className = "status-dot status-online";
+                            } else {
+                                activeChatStatusDot.className = "status-dot status-offline";
+                            }
+                        }
+                    });
+                } else {
+                    if(activeChatStatusDot) activeChatStatusDot.className = "status-dot status-offline";
+                }
+
+                bukaChatPrivate(namaTeman);
+            };
+
+            function bukaChatPrivate(namaTeman) {
+                const currentNama = localStorage.getItem("currentNama");
+                if(currentPrivateListener) off(currentPrivateListener);
+
+                const roomKey = [currentNama, namaTeman].sort().join("_");
+                const chatRef = ref(db, `chats/private/` + roomKey);
+                currentPrivateListener = chatRef;
+
+                if(chatBoxTeman) chatBoxTeman.innerHTML = "";
+
+                onChildAdded(chatRef, (snapshot) => {
+                    const c = snapshot.val();
+                    const key = snapshot.key;
+                    if(!c) return;
+
+                    const isMe = c.pengirim === currentNama;
+                    const rowClass = isMe ? "chat-row outgoing" : "chat-row incoming";
+                    
+                    let kontenPesan = "";
+                    if(c.teks) kontenPesan += `<span>${escapeHtml(c.teks)}</span>`;
+                    if(c.gambar) kontenPesan += `<img src="${c.gambar}" class="chat-img" />`;
+
+                    let deleteBtnHtml = isMe ? `<button class="delete-btn" onclick="hapusPesan('${key}')">Hapus</button>` : "";
+
+                    const div = document.createElement("div");
+                    div.className = rowClass;
+                    div.innerHTML = `<div class="bubble">${kontenPesan}${deleteBtnHtml}</div>`;
+                    
+                    if(chatBoxTeman) {
+                        chatBoxTeman.appendChild(div);
+                        chatBoxTeman.scrollTop = chatBoxTeman.scrollHeight;
+                    }
+                });
+            }
+
+            function escapeHtml(text) {
+                const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+                return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+            }
+        });
+    </script>
+</head>
+<body>
+
+    <div class="container">
+        
+        <!-- BAGIAN OTENTIKASI (LOGIN / DAFTAR) -->
+        <div id="authSection" class="section-box">
+            <h2>Masuk / Daftar Akun</h2>
+            <input type="text" id="namaInput" placeholder="Masukkan Nama Anda">
+            <button onclick="masukAkun()">Masuk</button>
+            <button onclick="daftarAkun()" style="background: #27ae60;">Daftar</button>
+        </div>
+
+        <!-- BANNER NOTIFIKASI PANGGILAN MASUK YANG JELAS DAN MUDAH DIMENGERTI -->
+        <div id="incomingCallBanner" class="hidden fixed top-5 left-1/2 transform -translate-x-1/2 z-50 bg-blue-600 text-white px-6 py-4 rounded-xl shadow-2xl border-2 border-white flex flex-col items-center gap-3 w-11/12 max-w-md">
+            <span id="incomingCallText" class="text-base font-bold text-center">Panggilan Video Masuk...</span>
+            <div class="flex gap-4 w-full justify-center">
+                <button onclick="terimaPanggilanAktif()" class="bg-green-500 hover:bg-green-600 px-6 py-2 rounded-lg font-bold text-white shadow">Terima Panggilan</button>
+                <button onclick="tolakPanggilanAktif()" class="bg-red-500 hover:bg-red-600 px-6 py-2 rounded-lg font-bold text-white shadow">Tolak</button>
+            </div>
+        </div>
+
+        <!-- BAGIAN UTAMA APLIKASI (CHAT & SOSMED) -->
+        <div id="mainAppSection" class="section-box hidden">
+            <div class="user-banner">
+                <span id="loggedInUserDisplay">Login sebagai: -</span>
+                <div>
+                    <span class="setting-icon" onclick="tampilkanHalaman('halamanPengaturan')">Pengaturan</span>
+                </div>
+            </div>
+
+            <!-- MENU UTAMA: CHAT -->
+            <div id="halamanChat" class="page">
+                <h3>Chat Personal & Video Call</h3>
+                
+                <!-- Pilih Teman -->
+                <div class="dropdown-container">
+                    <input type="text" id="searchChatTeman" placeholder="Cari atau pilih teman..." autocomplete="off">
+                    <div id="suggestionsListTeman" class="suggestions-list"></div>
+                </div>
+
+                <!-- Banner Informasi Teman Aktif & Tombol Video Call Langsung -->
+                <div id="activeChatBanner" class="user-banner" style="display: none; margin-bottom: 5px;">
+                    <div style="display: flex; align-items: center;">
+                        <span id="activeChatName" style="font-weight: bold;">-</span>
+                        <span id="activeChatStatusDot" class="status-dot status-offline"></span>
+                    </div>
+                    <button onclick="mulaiVideoCall()" style="background: #8e44ad; padding: 6px 12px; font-size: 13px; margin-bottom: 0;">🎥 Video Call</button>
+                </div>
+
+                <!-- Kotak Chat -->
+                <div id="chatBox-teman" class="chat-box"></div>
+
+                <!-- Input Pesan & Gambar -->
+                <div style="margin-top: 5px;">
+                    <label class="file-input-label" for="fileGambar">📷 Kirim Foto</label>
+                    <input type="file" id="fileGambar" accept="image/*" style="display:none;" onchange="handlePilihGambar(this)">
+                    <div style="display: flex; gap: 5px;">
+                        <input type="text" id="pesanT" placeholder="Tulis pesan..." style="flex:1; margin-bottom:0;" onkeypress="if(event.key === 'Enter') kirimPesan()">
+                        <button onclick="kirimPesan()" style="margin-bottom: 0;">Kirim</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HALAMAN PENGATURAN / AKUN & CARI TEMAN -->
+            <div id="halamanPengaturan" class="page hidden">
+                <span class="setting-icon" onclick="tampilkanHalaman('halamanChat')" style="margin-bottom: 15px;">⬅️ Kembali ke Chat</span>
+                
+                <h3>Cari Teman Baru</h3>
+                <input type="text" id="cariInput" placeholder="Cari nama teman...">
+                <button onclick="cariTeman()">Cari</button>
+                <div id="hasilCari" style="margin-top: 10px;"></div>
+
+                    <div id="requestContainer" style="display:none; margin-top: 20px;">
+                    <div id="requestBox"></div>
+                </div>
+
+                <hr style="border-color: #333; margin: 20px 0;">
+
+                <h3>Pengaturan Akun</h3>
+                <button onclick="keluar()" style="background: #e67e22; width: 100%;">Keluar Akun</button>
+                <button onclick="hapusAkunSteffy()" style="background: #c0392b; width: 100%; margin-top: 5px;">Hapus Akun Permanen</button>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- MODAL PANGGILAN VIDEO CALL (FULLSCREEN / OVERLAY) -->
+    <div id="videoCallModal" class="hidden fixed inset-0 z-50 bg-slate-900/95 flex flex-col justify-between p-4">
+        <!-- Header Call -->
+        <div class="bg-slate-800 p-4 rounded-xl shadow-md text-center flex justify-between items-center max-w-4xl mx-auto w-full">
+            <h2 id="callStatusText" class="text-lg font-bold text-blue-400">Menghubungkan...</h2>
+            <button onclick="akhiriCall()" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-medium transition text-sm">Tutup Panggilan</button>
+        </div>
+
+        <!-- Video Grid -->
+        <main class="flex-1 p-2 max-w-4xl mx-auto w-full flex flex-col md:flex-row gap-4 items-center justify-center">
+            <!-- Video Lokal (Ditambahkan playsinline dan muted agar berjalan stabil di perangkat seluler) -->
+            <div class="relative w-full md:w-1/2 bg-black rounded-xl overflow-hidden shadow-lg aspect-video flex items-center justify-center">
+                <video id="localVideo" autoplay muted playsinline class="w-full h-full object-cover transform -scale-x-100"></video>
+                <span class="absolute bottom-3 left-3 bg-black/60 px-3 py-1 rounded-md text-xs">Anda</span>
+            </div>
+            <!-- Video Lawan Bicara (Remote - Diperbaiki agar pemutaran video stream langsung dipaksa aktif dan tidak blank hitam) -->
+            <div class="relative w-full md:w-1/2 bg-black rounded-xl overflow-hidden shadow-lg aspect-video flex items-center justify-center">
+                <video id="remoteVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+                <span class="absolute bottom-3 left-3 bg-black/60 px-3 py-1 rounded-md text-xs">Lawan Bicara</span>
+            </div>
+        </main>
+    </div>
+
+</body>
+</html>
